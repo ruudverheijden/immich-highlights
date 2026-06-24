@@ -14,7 +14,7 @@ from config import (
 )
 from immich_client import ImmichClient
 from db import init_db, upsert_processed_asset
-from scoring_engine import score_asset
+from scoring_engine import get_asset_exif, score_asset
 from album_manager import AlbumManager
 from PIL import Image, UnidentifiedImageError
 import hashlib
@@ -36,11 +36,13 @@ def checksum_file(path: str) -> str:
 
 def immich_asset_url(asset_id: str) -> str:
     """Build a browser URL for opening an asset in Immich."""
+    # Browser links use the base URL, while API calls use the client's /api URL.
     return f"{IMMICH_API_URL.rstrip('/')}/photos/{asset_id}"
 
 
 def immich_album_url(album_id: str) -> str:
     """Build a browser URL for opening an album in Immich."""
+    # Keep this separate from API URLs so logs can be clicked directly.
     return f"{IMMICH_API_URL.rstrip('/')}/albums/{album_id}"
 
 
@@ -63,6 +65,8 @@ def run_once():
         perms = client.verify_permissions()
         # Asset reads are required; the other probes are advisory diagnostics.
         critical = ["asset.read"]
+        # Keep startup logs compact by aggregating only probes that did not
+        # return a successful HTTP status.
         failed_permissions = {
             permission: detail
             for permission, (ok, detail) in perms.items()
@@ -97,6 +101,7 @@ def run_once():
             try:
                 meta = client.get_asset_metadata(asset_id)
             except Exception as e:
+                # Metadata failures are asset-local; keep the batch moving.
                 logger.exception("metadata failed for %s: %s", asset_id, e)
                 continue
             tmp_path = os.path.join(TEMP_DIR, f"{asset_id}")
@@ -111,7 +116,7 @@ def run_once():
                 details = score_asset(meta, pil)
                 cs = checksum_file(tmp_path)
                 if isinstance(meta, dict):
-                    exif_val = meta.get("exif")
+                    exif_val = get_asset_exif(meta)
                 else:
                     # Be defensive around unexpected responses; the DB layer accepts {}.
                     exif_val = {}
@@ -123,15 +128,18 @@ def run_once():
                     exif_val,
                     details.get("blur_variance"),
                     details.get("face_count"),
+                    details.get("rating"),
                 )
+                # Log enough scoring context to understand why a photo made the cut.
                 logger.info(
                     "Scored photo %s (%s): score=%s, blur_variance=%s, "
-                    "face_count=%s, url=%s",
+                    "face_count=%s, rating=%s, url=%s",
                     asset_id,
                     meta.get("originalFileName", "unknown"),
                     details["score"],
                     details.get("blur_variance"),
                     details.get("face_count"),
+                    details.get("rating"),
                     immich_asset_url(asset_id),
                 )
                 processed.append((asset_id, details["score"]))
@@ -163,6 +171,8 @@ def run_once():
     top_ids = [p[0] for p in processed[:10]]
     if top_ids:
         name = f"Highlights: {os.getenv('SCORER_BUCKET', 'MVP')}"
+        # At this stage the list is already sorted, so the first ten are the
+        # highest-scoring assets in this run, not necessarily the whole library.
         logger.info(
             "Creating highlights album '%s' from %s scored assets",
             name,

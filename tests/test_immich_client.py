@@ -2,6 +2,8 @@ from src.immich_client import ImmichClient
 
 
 class FakeResponse:
+    """Tiny response double that exercises client parsing without network calls."""
+
     def __init__(self, payload):
         self.payload = payload
         self.headers = {"content-type": "application/json"}
@@ -20,6 +22,8 @@ class FakeResponse:
 
 
 class FakeSession:
+    """Capture outgoing requests so tests can assert Immich API contracts."""
+
     def __init__(self, responses):
         self.responses = list(responses)
         self.posts = []
@@ -77,6 +81,7 @@ def test_iter_assets_follows_next_page_until_limit():
 
     assets = list(client.iter_assets(page_size=2, max_assets=3))
 
+    # The second page has two items, but max_assets should stop after the third.
     assert assets == [{"id": "asset-1"}, {"id": "asset-2"}, {"id": "asset-3"}]
     assert [post["json"]["page"] for post in client.session.posts] == [1, 2]
 

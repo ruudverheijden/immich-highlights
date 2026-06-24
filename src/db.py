@@ -14,10 +14,12 @@ CREATE TABLE IF NOT EXISTS processed_assets (
     exif_json TEXT,
     blur_variance REAL,
     face_count INTEGER,
+    rating INTEGER,
     processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
 CREATE TABLE IF NOT EXISTS duplicates (
+    -- Reserved for future perceptual-hash/GPS duplicate detection.
     primary_asset_id TEXT,
     duplicate_asset_id TEXT,
     reason TEXT,
@@ -27,6 +29,7 @@ CREATE TABLE IF NOT EXISTS duplicates (
 );
 
 CREATE TABLE IF NOT EXISTS album_mappings (
+    -- Reserved for updating generated albums instead of creating a new one.
     album_id TEXT PRIMARY KEY,
     album_name TEXT,
     asset_ids_json TEXT,
@@ -35,6 +38,7 @@ CREATE TABLE IF NOT EXISTS album_mappings (
 );
 
 CREATE TABLE IF NOT EXISTS sync_log (
+    -- Reserved for tracking scheduled runs and API write outcomes.
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     event_type TEXT,
     album_id TEXT,
@@ -51,26 +55,36 @@ def init_db(db_path: str):
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     cur.executescript(SCHEMA)
+    ensure_processed_assets_columns(cur)
     conn.commit()
     return conn
 
 
-def upsert_processed_asset(conn, asset_id, checksum, score, exif, blur, faces):
+def ensure_processed_assets_columns(cur):
+    """Add columns introduced after the initial schema to existing databases."""
+    cur.execute("PRAGMA table_info(processed_assets)")
+    columns = {row[1] for row in cur.fetchall()}
+    if "rating" not in columns:
+        cur.execute("ALTER TABLE processed_assets ADD COLUMN rating INTEGER")
+
+
+def upsert_processed_asset(conn, asset_id, checksum, score, exif, blur, faces, rating):
     """Store the latest score for an asset, replacing stale scan results."""
     cur = conn.cursor()
     # SQLite stores JSON as text; callers receive a dict again in get_processed_asset.
     exif_json = json.dumps(exif or {})
     upsert_sql = (
         "INSERT INTO processed_assets (asset_id, checksum, score, exif_json, "
-        "blur_variance, face_count) VALUES (?, ?, ?, ?, ?, ?) "
+        "blur_variance, face_count, rating) VALUES (?, ?, ?, ?, ?, ?, ?) "
         "ON CONFLICT(asset_id) DO UPDATE SET checksum=excluded.checksum, "
         "score=excluded.score, exif_json=excluded.exif_json, "
         "blur_variance=excluded.blur_variance, "
-        "face_count=excluded.face_count, processed_at=CURRENT_TIMESTAMP"
+        "face_count=excluded.face_count, rating=excluded.rating, "
+        "processed_at=CURRENT_TIMESTAMP"
     )
     cur.execute(
         upsert_sql,
-        (asset_id, checksum, score, exif_json, blur, faces),
+        (asset_id, checksum, score, exif_json, blur, faces, rating),
     )
     conn.commit()
 
@@ -80,7 +94,7 @@ def get_processed_asset(conn, asset_id):
     cur = conn.cursor()
     cur.execute(
         "SELECT asset_id, checksum, score, exif_json, blur_variance, "
-        "face_count FROM processed_assets WHERE asset_id = ?",
+        "face_count, rating FROM processed_assets WHERE asset_id = ?",
         (asset_id,),
     )
     row = cur.fetchone()
@@ -93,4 +107,5 @@ def get_processed_asset(conn, asset_id):
         "exif": json.loads(row[3] or "{}"),
         "blur_variance": row[4],
         "face_count": row[5],
+        "rating": row[6],
     }

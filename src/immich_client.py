@@ -17,6 +17,8 @@ class ImmichClient:
         verify: bool = False,
     ):
         self.base_url = api_url.rstrip("/")
+        # Keep configuration friendly for humans: callers pass the browser base URL,
+        # and the client adds the API prefix for all HTTP calls.
         self.api_url = f"{self.base_url}/api"
         self.api_key = api_key
         self.session = requests.Session()
@@ -53,9 +55,11 @@ class ImmichClient:
 
     def search_assets(self, page: int = 1, size: int = 1000) -> dict:
         """Search assets through Immich's documented paginated metadata endpoint."""
+        # Immich metadata search endpoint is the stable way to page through assets.
         payload = {
             "page": page,
             "size": min(size, 1000),
+            # This service scores still images, so skip videos/audio early.
             "type": "IMAGE",
             "withExif": True,
         }
@@ -75,6 +79,7 @@ class ImmichClient:
         page = 1
         yielded = 0
         while True:
+            # Trim the final request instead of fetching a full page we will ignore.
             remaining = None if max_assets is None else max_assets - yielded
             if remaining is not None and remaining <= 0:
                 return
@@ -94,6 +99,8 @@ class ImmichClient:
             next_page = asset_page.get("nextPage")
             if not next_page:
                 return
+            # The OpenAPI schema describes nextPage as a token string, but in
+            # practice it is the next numeric page for metadata search.
             page = int(next_page)
 
     def get_asset_metadata(self, asset_id: str) -> dict:
@@ -111,6 +118,8 @@ class ImmichClient:
 
     def download_asset_preview(self, asset_id: str, dest_path: str) -> str:
         """Download an Immich-generated preview image for local scoring."""
+        # Previews are small and consistently decodable, unlike some originals
+        # such as HEIC files on systems without the right codec support.
         params = {"size": "preview"}
         url = self._url(f"assets/{asset_id}/thumbnail")
         resp = self.session.get(url, params=params, stream=True, timeout=30)
@@ -139,12 +148,13 @@ class ImmichClient:
                 "dry_run": True,
             }
         payload = {
+            # Immich's DTO uses albumName; using "name" silently does not create
+            # the expected album in current API versions.
             "albumName": name,
             "assetIds": asset_ids,
             "description": description,
         }
         url = self._url("albums")
-        logger.info("Creating Immich album '%s' with %s assets", name, len(asset_ids))
         resp = self.session.post(url, json=payload, timeout=10)
         resp.raise_for_status()
         result = self._json(resp)

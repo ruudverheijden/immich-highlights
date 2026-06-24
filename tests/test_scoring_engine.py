@@ -5,6 +5,8 @@ from src.scoring_engine import (
     compute_phash,
     compute_blur_variance,
     detect_faces,
+    get_asset_exif,
+    normalize_rating,
 )
 
 
@@ -91,3 +93,25 @@ def test_score_video_and_favorite_gps():
     }
     sr = score_asset(rich_meta, img)
     assert sr["score"] >= sp["score"]
+
+
+def test_score_uses_immich_rating():
+    """User star ratings should influence otherwise identical photos."""
+    img = Image.new("RGB", (800, 600), color=(120, 120, 120))
+    unrated = score_asset({"type": "IMAGE", "exifInfo": {}}, img)
+    five_star = score_asset({"type": "IMAGE", "exifInfo": {"rating": 5}}, img)
+    one_star = score_asset({"type": "IMAGE", "exifInfo": {"rating": 1}}, img)
+
+    assert five_star["rating"] == 5
+    assert one_star["rating"] == 1
+    assert five_star["score"] > unrated["score"]
+    assert one_star["score"] < unrated["score"]
+
+
+def test_rating_helpers_support_current_immich_metadata_shape():
+    """Current Immich asset responses expose rating inside exifInfo."""
+    meta = {"exifInfo": {"rating": "4", "iso": 200}}
+
+    assert get_asset_exif(meta) == {"rating": "4", "iso": 200}
+    assert normalize_rating("4") == 4
+    assert normalize_rating(0) is None

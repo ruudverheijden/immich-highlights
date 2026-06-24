@@ -5,6 +5,7 @@ from dotenv import load_dotenv
 # .env file can provide defaults without requiring shell setup.
 load_dotenv()
 
+# Browser/base URL only; ImmichClient appends /api for HTTP calls.
 IMMICH_API_URL = os.getenv("IMMICH_API_URL", "http://localhost:2283")
 IMMICH_API_KEY = os.getenv("IMMICH_API_KEY", "")
 

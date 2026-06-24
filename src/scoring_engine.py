@@ -34,6 +34,24 @@ def compute_phash(pil_image: Image.Image) -> str:
     return str(imagehash.phash(pil_image))
 
 
+def get_asset_exif(asset_meta: dict) -> dict:
+    """Return EXIF data from either historical or current Immich response shapes."""
+    return asset_meta.get("exif") or asset_meta.get("exifInfo") or {}
+
+
+def normalize_rating(rating):
+    """Return a valid Immich 1-5 rating, or None when the asset is unrated."""
+    if rating is None:
+        return None
+    try:
+        normalized = int(rating)
+    except (TypeError, ValueError):
+        return None
+    if 1 <= normalized <= 5:
+        return normalized
+    return None
+
+
 def score_asset(asset_meta: dict, pil_image: Image.Image) -> dict:
     """Score an asset from 0-100 using cheap local image heuristics."""
     score = 50
@@ -51,8 +69,10 @@ def score_asset(asset_meta: dict, pil_image: Image.Image) -> dict:
 
     w, h = pil_image.size
     details["dimensions"] = (w, h)
+    # Very small images are often screenshots, thumbnails, or received media.
     if min(w, h) < 640:
         score -= 15
+    # Large originals tend to contain more usable detail for highlights.
     if max(w, h) > 3000:
         score += 5
 
@@ -65,13 +85,22 @@ def score_asset(asset_meta: dict, pil_image: Image.Image) -> dict:
     try:
         faces = detect_faces(pil_image)
     except Exception:
+        # Face detection is helpful but optional; OpenCV data issues should not
+        # drop an otherwise valid image from the scorer.
         faces = 0
     details["face_count"] = faces
     if faces > 0:
         score += 15
 
-    exif = asset_meta.get("exif") or asset_meta.get("exifInfo") or {}
+    exif = get_asset_exif(asset_meta)
     details["exif"] = exif
+    rating = normalize_rating(exif.get("rating"))
+    details["rating"] = rating
+    if rating is not None:
+        # Immich user ratings are 1-5 stars. Treat 3 as neutral so explicit
+        # user preference nudges the heuristic without fully dominating it.
+        score += (rating - 3) * 10
+
     iso = exif.get("ISO") or exif.get("iso")
     # Very high ISO often correlates with noisy low-light photos.
     if iso and isinstance(iso, (int, float)) and iso > 3200:
@@ -97,6 +126,7 @@ def score_asset(asset_meta: dict, pil_image: Image.Image) -> dict:
         score += 3
 
     if asset_meta.get("isFavourite") or asset_meta.get("isFavorite"):
+        # Support both British and American spellings seen across API/client data.
         score += 10
     if asset_meta.get("isEdited"):
         score += 5
