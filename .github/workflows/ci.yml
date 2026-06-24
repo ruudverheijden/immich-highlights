@@ -14,9 +14,9 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: '3.14'
 
       - name: Install dependencies
         run: |
@@ -28,4 +28,4 @@ jobs:
         run: flake8 src tests
 
       - name: Test
-        run: PYTHONPATH=./src pytest -q
+        run: PYTHONPATH=. pytest -q
