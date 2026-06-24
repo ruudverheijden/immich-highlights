@@ -1,0 +1,6 @@
+requests
+pillow
+opencv-python-headless
+imagehash
+piexif
+APScheduler
