@@ -15,5 +15,6 @@ SCORER_DB_PATH = os.getenv("SCORER_DB_PATH", "./db/scorer.db")
 SCORER_SCAN_INTERVAL_HOURS = int(
     os.getenv("SCORER_SCAN_INTERVAL_HOURS", "24")
 )
+SCORER_MAX_ASSETS = int(os.getenv("SCORER_MAX_ASSETS", "100"))
 TEMP_DIR = os.getenv("SCORER_TEMP_DIR", "/tmp/scorer")
 LOG_LEVEL = os.getenv("SCORER_LOG_LEVEL", "INFO")

@@ -7,6 +7,7 @@ from config import (
     IMMICH_API_KEY,
     SCORER_DRY_RUN,
     SCORER_DB_PATH,
+    SCORER_MAX_ASSETS,
     TEMP_DIR,
     LOG_LEVEL,
 )
@@ -43,14 +44,20 @@ def run_once():
     # Simple list: first page only for MVP
     assets = client.list_assets(page=1, per_page=20)
     processed = []
+    processed_count = 0
     if isinstance(assets, dict):
         iterator = assets.get("data", assets)
     else:
         iterator = assets
     for asset in iterator:
+        # enforce maximum assets to process in a single run (useful for testing)
+        if processed_count >= SCORER_MAX_ASSETS:
+            logger.info("Reached SCORER_MAX_ASSETS=%s, stopping early", SCORER_MAX_ASSETS)
+            break
         asset_id = asset.get('id') or asset.get('assetId') or asset.get('uuid')
         if not asset_id:
             continue
+        processed_count += 1
         try:
             meta = client.get_asset_metadata(asset_id)
         except Exception as e:
