@@ -4,7 +4,6 @@ from src.scoring_engine import (
     score_asset,
     score_blur,
     score_dimensions,
-    score_media_type,
     score_faces,
     score_rating,
     parse_exposure_seconds,
@@ -89,15 +88,12 @@ def test_score_small_vs_regular():
     assert s["score"] <= r["score"]
 
 
-def test_score_video_and_favorite_gps():
+def test_score_favorite_and_gps():
     """Domain signals should move the score in the intended direction."""
     photo_meta = {"mediaType": "PHOTO"}
-    video_meta = {"mediaType": "VIDEO"}
     img = make_checkerboard(400, 10)
 
     sp = score_asset(photo_meta, img)
-    sv = score_asset(video_meta, img)
-    assert sv["score"] < sp["score"]
 
     rich_meta = {
         "mediaType": "PHOTO",
@@ -148,10 +144,8 @@ def test_exposure_parsing_and_quality_penalty():
     assert score_exif_quality({"iso": 6400, "exposure_time": "1/15"}) == -10
 
 
-def test_media_type_and_face_scoring_helpers():
-    """Media type and face helpers expose simple domain scoring rules."""
-    assert score_media_type({"type": "VIDEO"}) == -30
-    assert score_media_type({"type": "IMAGE"}) == 0
+def test_face_scoring_helper():
+    """Face helper exposes a simple domain scoring rule."""
     assert score_faces(0) == 0
     assert score_faces(2) == 15
 

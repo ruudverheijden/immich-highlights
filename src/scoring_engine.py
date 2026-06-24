@@ -73,14 +73,6 @@ def score_dimensions(width: int, height: int) -> int:
     return score
 
 
-def score_media_type(asset_meta: dict) -> int:
-    """Penalize media types that are less useful for photo highlight albums."""
-    media_type = asset_meta.get("mediaType") or asset_meta.get("type")
-    if media_type == "VIDEO":
-        return -30
-    return 0
-
-
 def score_faces(face_count: int) -> int:
     """Reward photos with at least one detected face."""
     if face_count > 0:
@@ -202,7 +194,6 @@ def calculate_score(asset_meta: dict, details: dict) -> int:
     width, height = details["dimensions"]
     score += score_dimensions(width, height)
 
-    score += score_media_type(asset_meta)
     score += score_faces(details["face_count"])
     score += score_rating(details["rating"])
     score += score_exif_quality(details["exif"])
