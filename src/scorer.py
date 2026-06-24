@@ -39,8 +39,19 @@ def immich_asset_url(asset_id: str) -> str:
     return f"{IMMICH_API_URL.rstrip('/')}/photos/{asset_id}"
 
 
+def immich_album_url(album_id: str) -> str:
+    """Build a browser URL for opening an album in Immich."""
+    return f"{IMMICH_API_URL.rstrip('/')}/albums/{album_id}"
+
+
 def run_once():
     """Process one batch of Immich assets and generate a highlights album."""
+    logger.info(
+        "Starting scorer run: immich_url=%s, dry_run=%s, max_assets=%s",
+        IMMICH_API_URL,
+        SCORER_DRY_RUN,
+        SCORER_MAX_ASSETS,
+    )
     Path(TEMP_DIR).mkdir(parents=True, exist_ok=True)
     conn = init_db(SCORER_DB_PATH)
     client = ImmichClient(
@@ -152,10 +163,25 @@ def run_once():
     top_ids = [p[0] for p in processed[:10]]
     if top_ids:
         name = f"Highlights: {os.getenv('SCORER_BUCKET', 'MVP')}"
+        logger.info(
+            "Creating highlights album '%s' from %s scored assets",
+            name,
+            len(top_ids),
+        )
         res = alb_mgr.ensure_album(
             name, top_ids, description="Auto-generated highlights (MVP)"
         )
-        logger.info("Album result: %s", res)
+        album_id = res.get("id", "unknown")
+        logger.info(
+            "Album generated: id=%s, name=%s, asset_count=%s, dry_run=%s, url=%s",
+            album_id,
+            res.get("albumName", name),
+            res.get("assetCount") or res.get("asset_count", len(top_ids)),
+            res.get("dry_run", False),
+            immich_album_url(album_id) if album_id != "unknown" else "unknown",
+        )
+    else:
+        logger.info("No scored assets available; skipping album creation")
 
 
 if __name__ == "__main__":

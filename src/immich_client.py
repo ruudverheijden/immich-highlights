@@ -1,5 +1,9 @@
 import requests
 from typing import Iterator, List, Optional
+import logging
+
+
+logger = logging.getLogger("immich_client")
 
 
 class ImmichClient:
@@ -130,19 +134,26 @@ class ImmichClient:
         if self.dry_run:
             # Preserve the response shape enough for callers to log/test safely.
             return {
-                "name": name,
+                "albumName": name,
                 "asset_count": len(asset_ids),
                 "dry_run": True,
             }
         payload = {
-            "name": name,
+            "albumName": name,
             "assetIds": asset_ids,
             "description": description,
         }
         url = self._url("albums")
+        logger.info("Creating Immich album '%s' with %s assets", name, len(asset_ids))
         resp = self.session.post(url, json=payload, timeout=10)
         resp.raise_for_status()
-        return self._json(resp)
+        result = self._json(resp)
+        logger.info(
+            "Created Immich album '%s' with id=%s",
+            result.get("albumName", name),
+            result.get("id", "unknown"),
+        )
+        return result
 
     def get_album(self, album_id: str) -> dict:
         url = self._url(f"albums/{album_id}")
@@ -240,17 +251,8 @@ class ImmichClient:
             "tag.update",
         ]
         for p in write_perms:
-            if self.dry_run:
-                checks[p] = (None, "skipped (dry_run)")
-            else:
-                # OPTIONS is only a capability hint, but it avoids mutating albums.
-                try:
-                    r = self.session.options(self._url("albums"), timeout=5)
-                    checks[p] = (
-                        r.status_code in (200, 204),
-                        str(r.status_code),
-                    )
-                except Exception as e:
-                    checks[p] = (False, str(e))
+            # Immich does not provide a safe generic permission-test endpoint
+            # for writes; OPTIONS can return false negatives even when writes work.
+            checks[p] = (None, "unchecked")
 
         return checks

@@ -95,3 +95,32 @@ def test_download_asset_preview_uses_thumbnail_preview_endpoint(tmp_path):
         "stream": True,
         "timeout": 30,
     }
+
+
+def test_create_album_uses_immich_album_name_field():
+    """Immich's create-album DTO uses albumName, not name."""
+    client = ImmichClient("http://immich.local", dry_run=False)
+    client.session = FakeSession([{"id": "album-1", "albumName": "Highlights"}])
+
+    result = client.create_album("Highlights", ["asset-1"], "Generated")
+
+    assert result == {"id": "album-1", "albumName": "Highlights"}
+    assert client.session.posts[0]["url"] == "http://immich.local/api/albums"
+    assert client.session.posts[0]["json"] == {
+        "albumName": "Highlights",
+        "assetIds": ["asset-1"],
+        "description": "Generated",
+    }
+
+
+def test_create_album_dry_run_reports_intent():
+    """Dry-run mode should make album writes visible without mutating Immich."""
+    client = ImmichClient("http://immich.local", dry_run=True)
+
+    result = client.create_album("Highlights", ["asset-1"], "Generated")
+
+    assert result == {
+        "albumName": "Highlights",
+        "asset_count": 1,
+        "dry_run": True,
+    }
