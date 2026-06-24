@@ -84,7 +84,7 @@ def run_once():
                 logger.info("Permission checks failed: %s", message)
     except Exception as e:
         logger.warning("Permission verification failed: %s", e)
-    alb_mgr = AlbumManager(client)
+    alb_mgr = AlbumManager(client, conn)
 
     processed = []
     processed_count = 0
@@ -169,18 +169,21 @@ def run_once():
 
     # Build a simple highlights album from the best-scoring assets in this batch.
     processed.sort(key=lambda x: x[1], reverse=True)
-    top_ids = [p[0] for p in processed[:10]]
+    top_ids = [p[0] for p in processed[:15]]
     if top_ids:
         name = f"Highlights: {SCORER_BUCKET}"
         # At this stage the list is already sorted, so the first ten are the
         # highest-scoring assets in this run, not necessarily the whole library.
         logger.info(
-            "Creating highlights album '%s' from %s scored assets",
+            "Ensuring highlights album '%s' contains %s scored assets",
             name,
             len(top_ids),
         )
         res = alb_mgr.ensure_album(
-            name, top_ids, description="Auto-generated highlights (MVP)"
+            name,
+            top_ids,
+            description="Auto-generated highlights (MVP)",
+            bucket=SCORER_BUCKET,
         )
         album_id = res.get("id", "unknown")
         logger.info(

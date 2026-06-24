@@ -1,4 +1,5 @@
 from src.immich_client import ImmichClient
+import requests
 
 
 class FakeResponse:
@@ -12,7 +13,8 @@ class FakeResponse:
         self.url = "http://immich.local/api/search/metadata"
 
     def raise_for_status(self):
-        pass
+        if self.status_code >= 400:
+            raise requests.HTTPError("error", response=self)
 
     def json(self):
         return self.payload
@@ -28,6 +30,7 @@ class FakeSession:
         self.responses = list(responses)
         self.posts = []
         self.gets = []
+        self.puts = []
 
     def post(self, url, json=None, timeout=None):
         self.posts.append({"url": url, "json": json, "timeout": timeout})
@@ -38,6 +41,10 @@ class FakeSession:
             {"url": url, "params": params, "stream": stream, "timeout": timeout}
         )
         return FakeResponse({})
+
+    def put(self, url, json=None, timeout=None):
+        self.puts.append({"url": url, "json": json, "timeout": timeout})
+        return FakeResponse(self.responses.pop(0))
 
 
 def test_list_assets_uses_metadata_search_endpoint():
@@ -129,3 +136,41 @@ def test_create_album_dry_run_reports_intent():
         "asset_count": 1,
         "dry_run": True,
     }
+
+
+def test_add_assets_to_album_uses_bulk_ids_field():
+    """Immich's single-album add endpoint expects BulkIdsDto.ids."""
+    client = ImmichClient("http://immich.local", dry_run=False)
+    client.session = FakeSession([{"added": 2}])
+
+    result = client.add_assets_to_album("album-1", ["asset-1", "asset-2"])
+
+    assert result == {"added": 2}
+    assert client.session.puts[0] == {
+        "url": "http://immich.local/api/albums/album-1/assets",
+        "json": {"ids": ["asset-1", "asset-2"]},
+        "timeout": 10,
+    }
+
+
+def test_add_assets_to_album_explains_missing_permission():
+    """A 403 on album updates usually means albumAsset.create is missing."""
+    client = ImmichClient("http://immich.local", dry_run=False)
+    response = {"message": "Forbidden"}
+    client.session = FakeSession([response])
+
+    original_put = client.session.put
+
+    def forbidden_put(url, json=None, timeout=None):
+        resp = original_put(url, json=json, timeout=timeout)
+        resp.status_code = 403
+        return resp
+
+    client.session.put = forbidden_put
+
+    try:
+        client.add_assets_to_album("album-1", ["asset-1"])
+    except PermissionError as e:
+        assert "albumAsset.create" in str(e)
+    else:
+        raise AssertionError("Expected PermissionError")

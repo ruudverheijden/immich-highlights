@@ -29,13 +29,16 @@ CREATE TABLE IF NOT EXISTS duplicates (
 );
 
 CREATE TABLE IF NOT EXISTS album_mappings (
-    -- Reserved for updating generated albums instead of creating a new one.
+    -- Maps generated scorer buckets to Immich albums so reruns update albums.
     album_id TEXT PRIMARY KEY,
     album_name TEXT,
     asset_ids_json TEXT,
     bucket TEXT,
     generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE UNIQUE INDEX IF NOT EXISTS idx_album_mappings_bucket
+ON album_mappings(bucket);
 
 CREATE TABLE IF NOT EXISTS sync_log (
     -- Reserved for tracking scheduled runs and API write outcomes.
@@ -109,3 +112,40 @@ def get_processed_asset(conn, asset_id):
         "face_count": row[5],
         "rating": row[6],
     }
+
+
+def get_album_mapping(conn, bucket):
+    """Fetch the Immich album previously created for a scorer bucket."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT album_id, album_name, asset_ids_json, bucket, generated_at "
+        "FROM album_mappings WHERE bucket = ?",
+        (bucket,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        "album_id": row[0],
+        "album_name": row[1],
+        "asset_ids": json.loads(row[2] or "[]"),
+        "bucket": row[3],
+        "generated_at": row[4],
+    }
+
+
+def upsert_album_mapping(conn, bucket, album_id, album_name, asset_ids):
+    """Remember which Immich album belongs to a generated scorer bucket."""
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO album_mappings "
+        "(album_id, album_name, asset_ids_json, bucket, generated_at) "
+        "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(bucket) DO UPDATE SET "
+        "album_id=excluded.album_id, "
+        "album_name=excluded.album_name, "
+        "asset_ids_json=excluded.asset_ids_json, "
+        "generated_at=CURRENT_TIMESTAMP",
+        (album_id, album_name, json.dumps(asset_ids or []), bucket),
+    )
+    conn.commit()

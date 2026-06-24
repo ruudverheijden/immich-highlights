@@ -47,7 +47,9 @@ Configure the service by copying `.env.example` to `.env` and editing the values
 
 - `IMMICH_API_KEY`
   A dedicated Immich API key. Create one in Immich with at least the permissions
-  listed below. Keep this secret and do not commit your `.env` file.
+  listed below, including `albumAsset.create` and `albumAsset.delete` for
+  updating existing generated albums. Keep this secret and do not commit your
+  `.env` file.
 
 - `SCORER_DRY_RUN`
   Controls whether the service writes albums to Immich. Use `true` while testing;

@@ -180,9 +180,19 @@ class ImmichClient:
                 "dry_run": True,
             }
         url = self._url(f"albums/{album_id}/assets")
-        payload = {"assetIds": asset_ids}
+        # Immich's single-album endpoint uses BulkIdsDto, whose field is "ids".
+        payload = {"ids": asset_ids}
         resp = self.session.put(url, json=payload, timeout=10)
-        resp.raise_for_status()
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as e:
+            if resp.status_code == 403:
+                raise PermissionError(
+                    "Immich refused adding assets to the existing album. "
+                    "Grant the API key the albumAsset.create permission, or the "
+                    "scorer can only reuse the album when no new assets need adding."
+                ) from e
+            raise
         return self._json(resp)
 
     def verify_permissions(self) -> dict:
