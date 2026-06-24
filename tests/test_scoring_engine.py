@@ -2,6 +2,11 @@ from PIL import Image, ImageDraw, ImageFilter
 
 from src.scoring_engine import (
     score_asset,
+    score_blur,
+    score_dimensions,
+    score_rating,
+    parse_exposure_seconds,
+    score_exif_quality,
     compute_phash,
     compute_blur_variance,
     detect_faces,
@@ -115,3 +120,20 @@ def test_rating_helpers_support_current_immich_metadata_shape():
     assert get_asset_exif(meta) == {"rating": "4", "iso": 200}
     assert normalize_rating("4") == 4
     assert normalize_rating(0) is None
+
+
+def test_individual_scoring_rules_are_explainable():
+    """Small scoring helpers make each heuristic easy to inspect."""
+    assert score_blur(10) == -20
+    assert score_blur(250) == 10
+    assert score_dimensions(320, 240) == -15
+    assert score_dimensions(4000, 3000) == 5
+    assert score_rating(5) == 20
+    assert score_rating(1) == -20
+
+
+def test_exposure_parsing_and_quality_penalty():
+    """Long exposures are penalized because they are more likely to blur."""
+    assert parse_exposure_seconds("1/15") == 1 / 15
+    assert parse_exposure_seconds("bad") is None
+    assert score_exif_quality({"iso": 6400, "exposure_time": "1/15"}) == -10

@@ -52,98 +52,171 @@ def normalize_rating(rating):
     return None
 
 
-def score_asset(asset_meta: dict, pil_image: Image.Image) -> dict:
-    """Score an asset from 0-100 using cheap local image heuristics."""
-    score = 50
-    details = {}
-    try:
-        blur = compute_blur_variance(pil_image)
-    except Exception:
-        # Metadata-only failures should not prevent an asset from receiving a score.
-        blur = 0
-    details["blur_variance"] = blur
+def score_blur(blur: float) -> int:
+    """Score image sharpness from a precomputed blur variance."""
     if blur < 50:
-        score -= 20
-    elif blur > 200:
-        score += 10
+        return -20
+    if blur > 200:
+        return 10
+    return 0
 
-    w, h = pil_image.size
-    details["dimensions"] = (w, h)
+
+def score_dimensions(width: int, height: int) -> int:
+    """Reward large images and penalize very small assets."""
+    score = 0
     # Very small images are often screenshots, thumbnails, or received media.
-    if min(w, h) < 640:
+    if min(width, height) < 640:
         score -= 15
     # Large originals tend to contain more usable detail for highlights.
-    if max(w, h) > 3000:
+    if max(width, height) > 3000:
         score += 5
+    return score
 
+
+def score_media_type(asset_meta: dict) -> int:
+    """Penalize media types that are less useful for photo highlight albums."""
     media_type = asset_meta.get("mediaType") or asset_meta.get("type")
     if media_type == "VIDEO":
-        # Video thumbnails are usually less useful for a photo highlights album.
-        score -= 30
+        return -30
+    return 0
 
-    faces = 0
+
+def score_faces(face_count: int) -> int:
+    """Reward photos with at least one detected face."""
+    if face_count > 0:
+        return 15
+    return 0
+
+
+def score_rating(rating) -> int:
+    """Convert Immich's 1-5 star user rating into a score adjustment."""
+    normalized = normalize_rating(rating)
+    if normalized is None:
+        return 0
+    # Treat 3 as neutral so explicit preference nudges, not dominates.
+    return (normalized - 3) * 10
+
+
+def parse_exposure_seconds(exposure):
+    """Parse EXIF exposure values represented as fractions or numbers."""
+    if not exposure:
+        return None
     try:
-        faces = detect_faces(pil_image)
-    except Exception:
-        # Face detection is helpful but optional; OpenCV data issues should not
-        # drop an otherwise valid image from the scorer.
-        faces = 0
-    details["face_count"] = faces
-    if faces > 0:
-        score += 15
+        # Immich/EXIF libraries may expose exposure as either "1/60" or a float.
+        if isinstance(exposure, str) and "/" in exposure:
+            num, den = exposure.split("/")
+            return float(num) / float(den)
+        return float(exposure)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
 
-    exif = get_asset_exif(asset_meta)
-    details["exif"] = exif
-    rating = normalize_rating(exif.get("rating"))
-    details["rating"] = rating
-    if rating is not None:
-        # Immich user ratings are 1-5 stars. Treat 3 as neutral so explicit
-        # user preference nudges the heuristic without fully dominating it.
-        score += (rating - 3) * 10
 
+def score_exif_quality(exif: dict) -> int:
+    """Penalize EXIF signals that often correlate with lower image quality."""
+    score = 0
     iso = exif.get("ISO") or exif.get("iso")
     # Very high ISO often correlates with noisy low-light photos.
     if iso and isinstance(iso, (int, float)) and iso > 3200:
         score -= 5
 
     exposure = exif.get("ExposureTime") or exif.get("exposure_time")
-    if exposure:
-        try:
-            # Immich/EXIF libraries may expose exposure as either "1/60" or a float.
-            if isinstance(exposure, str) and "/" in exposure:
-                num, den = exposure.split("/")
-                exposure_val = float(num) / float(den)
-            else:
-                exposure_val = float(exposure)
-            if exposure_val > 1 / 30:
-                score -= 5
-        except Exception:
-            pass
+    exposure_val = parse_exposure_seconds(exposure)
+    if exposure_val is not None and exposure_val > 1 / 30:
+        score -= 5
+    return score
 
+
+def score_location(exif: dict) -> int:
+    """Reward location metadata because it helps create meaningful albums."""
     gps = exif.get("GPSInfo") or exif.get("gps")
     if gps:
-        # Location data makes generated albums more useful for trips/events.
-        score += 3
+        return 3
+    return 0
 
+
+def score_user_flags(asset_meta: dict) -> int:
+    """Reward explicit user actions such as favorites and edits."""
+    score = 0
     if asset_meta.get("isFavourite") or asset_meta.get("isFavorite"):
         # Support both British and American spellings seen across API/client data.
         score += 10
     if asset_meta.get("isEdited"):
         score += 5
+    return score
 
-    # Average channel standard deviation is a cheap contrast proxy.
+
+def compute_contrast_stddev(pil_image: Image.Image):
+    """Compute average RGB channel standard deviation as a contrast proxy."""
+    stat = ImageStat.Stat(pil_image.convert("RGB"))
+    return sum(stat.stddev) / 3
+
+
+def score_contrast(stddev: float) -> int:
+    """Reward high contrast and lightly penalize very flat images."""
+    if stddev < 30:
+        return -5
+    if stddev > 80:
+        return 3
+    return 0
+
+
+def clamp_score(score: int) -> int:
+    """Keep downstream storage and comparisons predictable."""
+    return max(0, min(100, int(score)))
+
+
+def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
+    """Collect image and metadata signals used by the scoring rules."""
+    details = {}
     try:
-        stat = ImageStat.Stat(pil_image.convert("RGB"))
-        stddev = sum(stat.stddev) / 3
-        details["hist_std"] = stddev
-        if stddev < 30:
-            score -= 5
-        elif stddev > 80:
-            score += 3
+        details["blur_variance"] = compute_blur_variance(pil_image)
+    except Exception:
+        # Metadata-only failures should not prevent an asset from receiving a score.
+        details["blur_variance"] = 0
+
+    details["dimensions"] = pil_image.size
+
+    try:
+        details["face_count"] = detect_faces(pil_image)
+    except Exception:
+        # Face detection is helpful but optional; OpenCV data issues should not
+        # drop an otherwise valid image from the scorer.
+        details["face_count"] = 0
+
+    details["exif"] = get_asset_exif(asset_meta)
+    details["rating"] = normalize_rating(details["exif"].get("rating"))
+
+    try:
+        details["hist_std"] = compute_contrast_stddev(pil_image)
     except Exception:
         pass
 
-    # Keep downstream storage and comparisons predictable.
-    score = max(0, min(100, int(score)))
-    details["score"] = score
+    return details
+
+
+def calculate_score(asset_meta: dict, details: dict) -> int:
+    """Combine individual scoring rules into one 0-100 asset score."""
+    score = 50
+    score += score_blur(details["blur_variance"])
+
+    width, height = details["dimensions"]
+    score += score_dimensions(width, height)
+
+    score += score_media_type(asset_meta)
+    score += score_faces(details["face_count"])
+    score += score_rating(details["rating"])
+    score += score_exif_quality(details["exif"])
+    score += score_location(details["exif"])
+    score += score_user_flags(asset_meta)
+
+    if "hist_std" in details:
+        score += score_contrast(details["hist_std"])
+
+    return clamp_score(score)
+
+
+def score_asset(asset_meta: dict, pil_image: Image.Image) -> dict:
+    """Score an asset from 0-100 using cheap local image heuristics."""
+    details = collect_image_details(asset_meta, pil_image)
+    details["score"] = calculate_score(asset_meta, details)
     return details
