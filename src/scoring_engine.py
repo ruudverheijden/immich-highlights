@@ -31,7 +31,7 @@ def score_rating(rating) -> int:
     if rating is None:
         return 0
     # Treat 3 as neutral so explicit preference nudges, not dominates.
-    return (rating - 3) * 10
+    return (rating - 3) * 15
 
 
 def score_exif_quality(iso, exposure_seconds) -> int:
@@ -57,9 +57,9 @@ def score_user_flags(is_favorite: bool, is_edited: bool) -> int:
     """Reward explicit user actions such as favorites and edits."""
     score = 0
     if is_favorite:
-        score += 10
+        score += 20
     if is_edited:
-        score += 5
+        score += 10
     return score
 
 

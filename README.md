@@ -31,9 +31,10 @@ Docker (build & run):
 docker compose up --build -d
 ```
 
-Notes:
-- MVP implements blur, face detection, basic EXIF signals, and a simple album creation flow (dry-run by default).
+TODO
+----
 - Extend scoring, deduplication, and scheduling in follow-up iterations.
+- Use Portrait type photos made on iOS or Android as scoring criteria, they are usually made for nice looking photos although the contain a lot of blur
 
 Environment variables
 ---------------------
