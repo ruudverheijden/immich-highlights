@@ -15,7 +15,7 @@ from config import (
 )
 from immich_client import ImmichClient
 from db import init_db, upsert_processed_asset
-from scoring_engine import get_asset_exif, score_asset
+from asset_analysis import get_asset_exif, score_asset
 from album_manager import AlbumManager
 from PIL import Image, UnidentifiedImageError
 import hashlib
