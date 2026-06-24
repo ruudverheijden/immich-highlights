@@ -4,9 +4,18 @@ from src.scoring_engine import (
     score_asset,
     score_blur,
     score_dimensions,
+    score_media_type,
+    score_faces,
     score_rating,
     parse_exposure_seconds,
     score_exif_quality,
+    score_location,
+    score_user_flags,
+    compute_contrast_stddev,
+    score_contrast,
+    clamp_score,
+    collect_image_details,
+    calculate_score,
     compute_phash,
     compute_blur_variance,
     detect_faces,
@@ -137,3 +146,62 @@ def test_exposure_parsing_and_quality_penalty():
     assert parse_exposure_seconds("1/15") == 1 / 15
     assert parse_exposure_seconds("bad") is None
     assert score_exif_quality({"iso": 6400, "exposure_time": "1/15"}) == -10
+
+
+def test_media_type_and_face_scoring_helpers():
+    """Media type and face helpers expose simple domain scoring rules."""
+    assert score_media_type({"type": "VIDEO"}) == -30
+    assert score_media_type({"type": "IMAGE"}) == 0
+    assert score_faces(0) == 0
+    assert score_faces(2) == 15
+
+
+def test_location_and_user_flag_scoring_helpers():
+    """Location, favorite, and edit signals should be easy to reason about."""
+    assert score_location({"gps": {"lat": 1}}) == 3
+    assert score_location({}) == 0
+    assert score_user_flags({"isFavorite": True, "isEdited": True}) == 15
+    assert score_user_flags({}) == 0
+
+
+def test_contrast_helpers_and_clamp_score():
+    """Contrast and clamp helpers isolate final-score boundaries."""
+    flat = Image.new("RGB", (100, 100), color=(128, 128, 128))
+    checkerboard = make_checkerboard(100, 10)
+
+    assert compute_contrast_stddev(flat) == 0
+    assert compute_contrast_stddev(checkerboard) > 80
+    assert score_contrast(0) == -5
+    assert score_contrast(100) == 3
+    assert clamp_score(-10) == 0
+    assert clamp_score(110) == 100
+
+
+def test_collect_image_details_returns_scoring_inputs():
+    """Detail collection should gather all inputs used by calculate_score."""
+    img = Image.new("RGB", (800, 600), color=(120, 120, 120))
+    meta = {"type": "IMAGE", "exifInfo": {"rating": "4"}}
+
+    details = collect_image_details(meta, img)
+
+    assert details["dimensions"] == (800, 600)
+    assert "blur_variance" in details
+    assert "face_count" in details
+    assert details["exif"] == {"rating": "4"}
+    assert details["rating"] == 4
+    assert "hist_std" in details
+
+
+def test_calculate_score_combines_scoring_inputs():
+    """Final score calculation should be deterministic from collected details."""
+    details = {
+        "blur_variance": 250,
+        "dimensions": (4000, 3000),
+        "face_count": 1,
+        "rating": 5,
+        "exif": {"gps": {"lat": 1}},
+        "hist_std": 100,
+    }
+    meta = {"type": "IMAGE", "isFavorite": True, "isEdited": True}
+
+    assert calculate_score(meta, details) == 100
