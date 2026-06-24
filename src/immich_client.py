@@ -32,23 +32,37 @@ class ImmichClient:
         """Join endpoint paths without leaking slash details to callers."""
         return f"{self.api_url}/{path.lstrip('/')}"
 
+    def _json(self, resp: requests.Response):
+        """Parse JSON or raise an error that explains what Immich returned."""
+        try:
+            return resp.json()
+        except requests.exceptions.JSONDecodeError as e:
+            content_type = resp.headers.get("content-type", "unknown")
+            preview = resp.text[:200].replace("\n", " ")
+            raise requests.exceptions.InvalidJSONError(
+                "Immich returned non-JSON response from "
+                f"{resp.url} "
+                f"(status={resp.status_code}, content-type={content_type}): "
+                f"{preview!r}"
+            ) from e
+
     def list_assets(self, page: int = 1, per_page: int = 20) -> List[dict]:
         # Keep the first integration simple: callers decide whether to page further.
         params = {"page": page, "limit": per_page}
-        resp = self.session.get(self._url("assets"), params=params)
+        resp = self.session.get(self._url("assets"), params=params, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        return self._json(resp)
 
     def get_asset_metadata(self, asset_id: str) -> dict:
         url = self._url(f"assets/{asset_id}/metadata")
-        resp = self.session.get(url)
+        resp = self.session.get(url, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        return self._json(resp)
 
     def download_asset(self, asset_id: str, dest_path: str) -> str:
         params = {"download": "true"}
         url = self._url(f"file/{asset_id}")
-        resp = self.session.get(url, params=params, stream=True)
+        resp = self.session.get(url, params=params, stream=True, timeout=30)
         resp.raise_for_status()
         with open(dest_path, "wb") as f:
             # Stream downloads so large videos/photos do not sit fully in memory.
@@ -75,15 +89,15 @@ class ImmichClient:
             "description": description,
         }
         url = self._url("albums")
-        resp = self.session.post(url, json=payload)
+        resp = self.session.post(url, json=payload, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        return self._json(resp)
 
     def get_album(self, album_id: str) -> dict:
         url = self._url(f"albums/{album_id}")
-        resp = self.session.get(url)
+        resp = self.session.get(url, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        return self._json(resp)
 
     def add_assets_to_album(self, album_id: str, asset_ids: List[str]) -> dict:
         if self.dry_run:
@@ -95,9 +109,9 @@ class ImmichClient:
             }
         url = self._url(f"albums/{album_id}/assets")
         payload = {"assetIds": asset_ids}
-        resp = self.session.put(url, json=payload)
+        resp = self.session.put(url, json=payload, timeout=10)
         resp.raise_for_status()
-        return resp.json()
+        return self._json(resp)
 
     def verify_permissions(self) -> dict:
         """Perform lightweight checks to validate common Immich API permissions.

@@ -1,5 +1,6 @@
 import os
 import logging
+import requests
 from pathlib import Path
 
 from config import (
@@ -55,8 +56,13 @@ def run_once():
         logger.warning("Permission verification failed: %s", e)
     alb_mgr = AlbumManager(client)
 
-    # Simple list: first page only for MVP.
-    assets = client.list_assets(page=1, per_page=20)
+    try:
+        # Simple list: first page only for MVP.
+        assets = client.list_assets(page=1, per_page=20)
+    except requests.RequestException as e:
+        logger.error("Unable to list Immich assets from %s: %s", IMMICH_API_URL, e)
+        return
+
     processed = []
     processed_count = 0
     if isinstance(assets, dict):
