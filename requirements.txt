@@ -4,3 +4,4 @@ opencv-python-headless
 imagehash
 piexif
 APScheduler
+python-dotenv

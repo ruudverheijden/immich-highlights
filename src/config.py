@@ -1,4 +1,8 @@
 import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file if it exists
+load_dotenv()
 
 IMMICH_API_URL = os.getenv("IMMICH_API_URL", "http://localhost:2283")
 IMMICH_API_KEY = os.getenv("IMMICH_API_KEY", "")

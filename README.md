@@ -12,13 +12,11 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-2. Configure environment variables (example):
+2. Copy and configure `.env`:
 
 ```bash
-export IMMICH_API_URL=http://immich:2283
-export IMMICH_API_KEY=your_api_key
-export SCORER_DB_PATH=./db/scorer.db
-export SCORER_DRY_RUN=true
+cp .env.example .env
+# Edit .env with your Immich API URL, key, and other settings
 ```
 
 3. Run once:
