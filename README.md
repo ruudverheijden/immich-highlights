@@ -34,3 +34,28 @@ docker compose up --build -d
 Notes:
 - MVP implements blur, face detection, basic EXIF signals, and a simple album creation flow (dry-run by default).
 - Extend scoring, deduplication, and scheduling in follow-up iterations.
+
+Required API permissions
+------------------------
+
+Create a dedicated Immich API key with the following minimal permissions for the scorer to operate properly:
+
+- `asset.read` (list and download assets)
+- `asset.update` (optional — modify asset metadata if you implement writes)
+- `asset.view` (view asset metadata)
+- `album.create` (create highlight albums)
+- `album.read` (list/read albums)
+- `album.update` (update album metadata)
+- `album.statistics` (optional)
+- `albumAsset.create` (add assets to an album)
+- `albumAsset.delete` (remove assets from an album)
+- `archive.read` (optional)
+- `face.read` (optional — for face-based features)
+- `memory.read` (optional)
+- `person.read` (optional)
+- `person.statistics` (optional)
+- `server.about` (lightweight connectivity check)
+- `tag.create`, `tag.read`, `tag.update` (optional — for tag-based features)
+- `user.read` (optional)
+
+The scorer performs a lightweight permission check at startup (it will attempt harmless GET/OPTIONS requests). If you only want to test without writes, set `SCORER_DRY_RUN=true` in `.env`.

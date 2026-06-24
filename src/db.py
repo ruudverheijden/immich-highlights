@@ -2,6 +2,8 @@ import sqlite3
 import json
 from pathlib import Path
 
+# The schema is intentionally compact: processed_assets powers idempotent rescans,
+# while the other tables reserve space for duplicate tracking and generated albums.
 SCHEMA = """
 PRAGMA foreign_keys = ON;
 
@@ -44,6 +46,7 @@ CREATE TABLE IF NOT EXISTS sync_log (
 
 
 def init_db(db_path: str):
+    """Create the SQLite database and return an open connection."""
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
@@ -53,7 +56,9 @@ def init_db(db_path: str):
 
 
 def upsert_processed_asset(conn, asset_id, checksum, score, exif, blur, faces):
+    """Store the latest score for an asset, replacing stale scan results."""
     cur = conn.cursor()
+    # SQLite stores JSON as text; callers receive a dict again in get_processed_asset.
     exif_json = json.dumps(exif or {})
     upsert_sql = (
         "INSERT INTO processed_assets (asset_id, checksum, score, exif_json, "
@@ -71,6 +76,7 @@ def upsert_processed_asset(conn, asset_id, checksum, score, exif, blur, faces):
 
 
 def get_processed_asset(conn, asset_id):
+    """Fetch a processed asset row in the shape used by tests and callers."""
     cur = conn.cursor()
     cur.execute(
         "SELECT asset_id, checksum, score, exif_json, blur_variance, "
