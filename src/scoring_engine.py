@@ -56,7 +56,8 @@ def score_asset(asset_meta: dict, pil_image: Image.Image) -> dict:
     if max(w, h) > 3000:
         score += 5
 
-    if asset_meta.get("mediaType") == "VIDEO":
+    media_type = asset_meta.get("mediaType") or asset_meta.get("type")
+    if media_type == "VIDEO":
         # Video thumbnails are usually less useful for a photo highlights album.
         score -= 30
 
@@ -69,7 +70,7 @@ def score_asset(asset_meta: dict, pil_image: Image.Image) -> dict:
     if faces > 0:
         score += 15
 
-    exif = asset_meta.get("exif", {}) or {}
+    exif = asset_meta.get("exif") or asset_meta.get("exifInfo") or {}
     details["exif"] = exif
     iso = exif.get("ISO") or exif.get("iso")
     # Very high ISO often correlates with noisy low-light photos.

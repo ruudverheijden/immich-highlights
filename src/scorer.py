@@ -16,7 +16,7 @@ from immich_client import ImmichClient
 from db import init_db, upsert_processed_asset
 from scoring_engine import score_asset
 from album_manager import AlbumManager
-from PIL import Image
+from PIL import Image, UnidentifiedImageError
 import hashlib
 
 
@@ -46,8 +46,8 @@ def run_once():
     try:
         perms = client.verify_permissions()
         logger.info("Permission check results: %s", perms)
-        # These reads are required; write checks are advisory.
-        critical = ["asset.read", "album.read", "server.about"]
+        # Asset reads are required; the other probes are advisory diagnostics.
+        critical = ["asset.read"]
         for p in critical:
             ok, detail = perms.get(p, (None, "missing"))
             if ok is False:
@@ -56,72 +56,72 @@ def run_once():
         logger.warning("Permission verification failed: %s", e)
     alb_mgr = AlbumManager(client)
 
-    try:
-        # Simple list: first page only for MVP.
-        assets = client.list_assets(page=1, per_page=20)
-    except requests.RequestException as e:
-        logger.error("Unable to list Immich assets from %s: %s", IMMICH_API_URL, e)
-        return
-
     processed = []
     processed_count = 0
-    if isinstance(assets, dict):
-        # Immich versions/endpoints may return either a list or a paginated wrapper.
-        iterator = assets.get("data", assets)
-    else:
-        iterator = assets
-    for asset in iterator:
-        # Bound each scheduled run so a large library does not monopolize the process.
+    try:
+        iterator = client.iter_assets(
+            page_size=min(SCORER_MAX_ASSETS, 1000),
+            max_assets=SCORER_MAX_ASSETS,
+        )
+        for asset in iterator:
+            # Immich identifiers have varied, so accept known aliases.
+            asset_id = asset.get("id") or asset.get("assetId") or asset.get("uuid")
+            if not asset_id:
+                continue
+            processed_count += 1
+            try:
+                meta = client.get_asset_metadata(asset_id)
+            except Exception as e:
+                logger.exception("metadata failed for %s: %s", asset_id, e)
+                continue
+            tmp_path = os.path.join(TEMP_DIR, f"{asset_id}")
+            try:
+                # Preview thumbnails are consistently decodable even for HEIC originals.
+                client.download_asset_preview(asset_id, tmp_path)
+            except Exception as e:
+                logger.exception("download failed for %s: %s", asset_id, e)
+                continue
+            try:
+                pil = Image.open(tmp_path)
+                details = score_asset(meta, pil)
+                cs = checksum_file(tmp_path)
+                if isinstance(meta, dict):
+                    exif_val = meta.get("exif")
+                else:
+                    # Be defensive around unexpected responses; the DB layer accepts {}.
+                    exif_val = {}
+                upsert_processed_asset(
+                    conn,
+                    asset_id,
+                    cs,
+                    details["score"],
+                    exif_val,
+                    details.get("blur_variance"),
+                    details.get("face_count"),
+                )
+                processed.append((asset_id, details["score"]))
+            except UnidentifiedImageError as e:
+                logger.warning("unsupported image file for %s: %s", asset_id, e)
+            except Exception as e:
+                logger.exception("scoring failed for %s: %s", asset_id, e)
+            finally:
+                try:
+                    # Temporary files may contain original media; remove them promptly.
+                    os.remove(tmp_path)
+                except Exception:
+                    pass
+    except requests.RequestException as e:
+        logger.error(
+            "Unable to list Immich assets from %s: %s",
+            IMMICH_API_URL,
+            e,
+        )
+        return
+    finally:
         if processed_count >= SCORER_MAX_ASSETS:
             logger.info(
-                "Reached SCORER_MAX_ASSETS=%s, stopping early",
-                SCORER_MAX_ASSETS,
+                "Reached SCORER_MAX_ASSETS=%s, stopping early", SCORER_MAX_ASSETS
             )
-            break
-        # Immich identifiers have varied across API responses, so accept known aliases.
-        asset_id = asset.get("id") or asset.get("assetId") or asset.get("uuid")
-        if not asset_id:
-            continue
-        processed_count += 1
-        try:
-            meta = client.get_asset_metadata(asset_id)
-        except Exception as e:
-            logger.exception("metadata failed for %s: %s", asset_id, e)
-            continue
-        tmp_path = os.path.join(TEMP_DIR, f"{asset_id}")
-        try:
-            # Scoring libraries work with local files/PIL images, not streamed bytes.
-            client.download_asset(asset_id, tmp_path)
-        except Exception as e:
-            logger.exception("download failed for %s: %s", asset_id, e)
-            continue
-        try:
-            pil = Image.open(tmp_path)
-            details = score_asset(meta, pil)
-            cs = checksum_file(tmp_path)
-            if isinstance(meta, dict):
-                exif_val = meta.get("exif")
-            else:
-                # Be defensive around unexpected API responses; the DB layer accepts {}.
-                exif_val = {}
-            upsert_processed_asset(
-                conn,
-                asset_id,
-                cs,
-                details["score"],
-                exif_val,
-                details.get("blur_variance"),
-                details.get("face_count"),
-            )
-            processed.append((asset_id, details["score"]))
-        except Exception as e:
-            logger.exception("scoring failed for %s: %s", asset_id, e)
-        finally:
-            try:
-                # Temporary files may contain original media, so remove them promptly.
-                os.remove(tmp_path)
-            except Exception:
-                pass
 
     # Build a simple highlights album from the best-scoring assets in this batch.
     processed.sort(key=lambda x: x[1], reverse=True)

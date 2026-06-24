@@ -1,5 +1,5 @@
 import requests
-from typing import Optional, List
+from typing import Iterator, List, Optional
 
 
 class ImmichClient:
@@ -46,23 +46,73 @@ class ImmichClient:
                 f"{preview!r}"
             ) from e
 
-    def list_assets(self, page: int = 1, per_page: int = 20) -> List[dict]:
-        # Keep the first integration simple: callers decide whether to page further.
-        params = {"page": page, "limit": per_page}
-        resp = self.session.get(self._url("assets"), params=params, timeout=10)
+    def search_assets(self, page: int = 1, size: int = 1000) -> dict:
+        """Search assets through Immich's documented paginated metadata endpoint."""
+        payload = {
+            "page": page,
+            "size": min(size, 1000),
+            "type": "IMAGE",
+            "withExif": True,
+        }
+        resp = self.session.post(self._url("search/metadata"), json=payload, timeout=10)
         resp.raise_for_status()
         return self._json(resp)
 
+    def list_assets(self, page: int = 1, per_page: int = 20) -> List[dict]:
+        """Return one page of assets from Immich's metadata search endpoint."""
+        results = self.search_assets(page=page, size=per_page)
+        return results.get("assets", {}).get("items", [])
+
+    def iter_assets(
+        self, page_size: int = 1000, max_assets: Optional[int] = None
+    ) -> Iterator[dict]:
+        """Yield assets page-by-page until Immich has no next page."""
+        page = 1
+        yielded = 0
+        while True:
+            remaining = None if max_assets is None else max_assets - yielded
+            if remaining is not None and remaining <= 0:
+                return
+
+            response = self.search_assets(
+                page=page,
+                size=min(page_size, remaining) if remaining else page_size,
+            )
+            asset_page = response.get("assets", {})
+            items = asset_page.get("items", [])
+            for asset in items:
+                yield asset
+                yielded += 1
+                if max_assets is not None and yielded >= max_assets:
+                    return
+
+            next_page = asset_page.get("nextPage")
+            if not next_page:
+                return
+            page = int(next_page)
+
     def get_asset_metadata(self, asset_id: str) -> dict:
-        url = self._url(f"assets/{asset_id}/metadata")
+        # The metadata endpoint returns metadata entries; the asset endpoint
+        # returns the full AssetResponseDto that the scorer needs.
+        url = self._url(f"assets/{asset_id}")
         resp = self.session.get(url, timeout=10)
         resp.raise_for_status()
         return self._json(resp)
 
     def download_asset(self, asset_id: str, dest_path: str) -> str:
-        params = {"download": "true"}
-        url = self._url(f"file/{asset_id}")
+        url = self._url(f"assets/{asset_id}/original")
+        resp = self.session.get(url, stream=True, timeout=30)
+        return self._write_stream(resp, dest_path)
+
+    def download_asset_preview(self, asset_id: str, dest_path: str) -> str:
+        """Download an Immich-generated preview image for local scoring."""
+        params = {"size": "preview"}
+        url = self._url(f"assets/{asset_id}/thumbnail")
         resp = self.session.get(url, params=params, stream=True, timeout=30)
+        return self._write_stream(resp, dest_path)
+
+    def _write_stream(self, resp: requests.Response, dest_path: str) -> str:
+        """Persist a streaming response to disk."""
         resp.raise_for_status()
         with open(dest_path, "wb") as f:
             # Stream downloads so large videos/photos do not sit fully in memory.
@@ -136,8 +186,8 @@ class ImmichClient:
         # asset read
         try:
             # A single item is enough to validate access while keeping probes cheap.
-            params = {"page": 1, "limit": 1}
-            r = self.session.get(self._url("assets"), params=params, timeout=5)
+            payload = {"page": 1, "size": 1}
+            r = self.session.post(self._url("search/metadata"), json=payload, timeout=5)
             checks["asset.read"] = (
                 r.status_code == 200,
                 str(r.status_code),
