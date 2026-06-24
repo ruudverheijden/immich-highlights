@@ -34,6 +34,11 @@ def checksum_file(path: str) -> str:
     return h.hexdigest()
 
 
+def immich_asset_url(asset_id: str) -> str:
+    """Build a browser URL for opening an asset in Immich."""
+    return f"{IMMICH_API_URL.rstrip('/')}/photos/{asset_id}"
+
+
 def run_once():
     """Process one batch of Immich assets and generate a highlights album."""
     Path(TEMP_DIR).mkdir(parents=True, exist_ok=True)
@@ -107,6 +112,16 @@ def run_once():
                     exif_val,
                     details.get("blur_variance"),
                     details.get("face_count"),
+                )
+                logger.info(
+                    "Scored photo %s (%s): score=%s, blur_variance=%s, "
+                    "face_count=%s, url=%s",
+                    asset_id,
+                    meta.get("originalFileName", "unknown"),
+                    details["score"],
+                    details.get("blur_variance"),
+                    details.get("face_count"),
+                    immich_asset_url(asset_id),
                 )
                 processed.append((asset_id, details["score"]))
             except UnidentifiedImageError as e:

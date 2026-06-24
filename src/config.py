@@ -10,7 +10,8 @@ IMMICH_API_KEY = os.getenv("IMMICH_API_KEY", "")
 
 SCORER_DB_PATH = os.getenv("SCORER_DB_PATH", "./db/scorer.db")
 
-SCORER_DRY_RUN = os.getenv("SCORER_DRY_RUN", "true")
+# Accept common truthy spellings so Docker/env-file configuration stays forgiving.
+SCORER_DRY_RUN = os.getenv("SCORER_DRY_RUN", "true").lower()
 LOG_LEVEL = os.getenv("SCORER_LOG_LEVEL", "INFO")
 
 # Runtime limits protect scheduled runs from scanning a large library forever.

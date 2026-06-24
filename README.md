@@ -19,9 +19,8 @@ cp .env.example .env
 # Edit .env with your Immich API URL, key, and other settings
 ```
 
-`IMMICH_API_URL` must point to the Immich API base URL, including `/api`.
-For example, if the browser UI is `http://10.1.2.3:2283/`, use
-`http://10.1.2.3:2283/api`.
+`IMMICH_API_URL` should be the Immich base URL as opened in your browser,
+without `/api`. For example, use `http://10.1.2.3:2283`.
 
 3. Run once:
 

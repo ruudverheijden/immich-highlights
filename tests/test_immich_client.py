@@ -38,7 +38,7 @@ class FakeSession:
 
 def test_list_assets_uses_metadata_search_endpoint():
     """Immich exposes paginated asset listing through metadata search."""
-    client = ImmichClient("http://immich.local/api", dry_run=True)
+    client = ImmichClient("http://immich.local", dry_run=True)
     client.session = FakeSession(
         [{"assets": {"items": [{"id": "asset-1"}], "nextPage": None}}]
     )
@@ -57,7 +57,7 @@ def test_list_assets_uses_metadata_search_endpoint():
 
 def test_iter_assets_follows_next_page_until_limit():
     """The scorer can stream pages without loading the whole library at once."""
-    client = ImmichClient("http://immich.local/api", dry_run=True)
+    client = ImmichClient("http://immich.local", dry_run=True)
     client.session = FakeSession(
         [
             {
@@ -83,7 +83,7 @@ def test_iter_assets_follows_next_page_until_limit():
 
 def test_download_asset_preview_uses_thumbnail_preview_endpoint(tmp_path):
     """Preview thumbnails avoid codec issues with original formats like HEIC."""
-    client = ImmichClient("http://immich.local/api", dry_run=True)
+    client = ImmichClient("http://immich.local", dry_run=True)
     client.session = FakeSession([])
     dest_path = tmp_path / "preview"
 

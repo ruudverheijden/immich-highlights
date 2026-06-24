@@ -12,7 +12,8 @@ class ImmichClient:
         dry_run: bool = True,
         verify: bool = False,
     ):
-        self.api_url = api_url.rstrip("/")
+        self.base_url = api_url.rstrip("/")
+        self.api_url = f"{self.base_url}/api"
         self.api_key = api_key
         self.session = requests.Session()
         self.dry_run = dry_run
