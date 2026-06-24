@@ -45,13 +45,22 @@ def run_once():
     )
     try:
         perms = client.verify_permissions()
-        logger.info("Permission check results: %s", perms)
         # Asset reads are required; the other probes are advisory diagnostics.
         critical = ["asset.read"]
-        for p in critical:
-            ok, detail = perms.get(p, (None, "missing"))
-            if ok is False:
-                logger.warning("Critical permission missing: %s -> %s", p, detail)
+        failed_permissions = {
+            permission: detail
+            for permission, (ok, detail) in perms.items()
+            if ok is False
+        }
+        if failed_permissions:
+            message = ", ".join(
+                f"{permission} -> {detail}"
+                for permission, detail in failed_permissions.items()
+            )
+            if any(permission in critical for permission in failed_permissions):
+                logger.warning("Permission checks failed: %s", message)
+            else:
+                logger.info("Permission checks failed: %s", message)
     except Exception as e:
         logger.warning("Permission verification failed: %s", e)
     alb_mgr = AlbumManager(client)
