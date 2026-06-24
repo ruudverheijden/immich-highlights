@@ -9,6 +9,7 @@ from config import (
     SCORER_DRY_RUN,
     SCORER_DB_PATH,
     SCORER_MAX_ASSETS,
+    SCORER_BUCKET,
     TEMP_DIR,
     LOG_LEVEL,
 )
@@ -170,7 +171,7 @@ def run_once():
     processed.sort(key=lambda x: x[1], reverse=True)
     top_ids = [p[0] for p in processed[:10]]
     if top_ids:
-        name = f"Highlights: {os.getenv('SCORER_BUCKET', 'MVP')}"
+        name = f"Highlights: {SCORER_BUCKET}"
         # At this stage the list is already sorted, so the first ten are the
         # highest-scoring assets in this run, not necessarily the whole library.
         logger.info(
