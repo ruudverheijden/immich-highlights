@@ -28,4 +28,4 @@ jobs:
         run: flake8 src tests
 
       - name: Test
-        run: pytest -q
+        run: PYTHONPATH=./src pytest -q
