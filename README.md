@@ -63,8 +63,9 @@ Configure the service by copying `.env.example` to `.env` and editing the values
 - `IMMICH_API_KEY`
   A dedicated Immich API key. Create one in Immich with at least the permissions
   listed below, including `albumAsset.create` and `albumAsset.delete` for
-  updating existing generated albums. Keep this secret and do not commit your
-  `.env` file.
+  updating existing generated albums. Add `face.read` when you want the scorer
+  to use Immich's own face detections for face-based scoring. Keep this secret
+  and do not commit your `.env` file.
 
 - `SCORER_DRY_RUN`
   Controls whether the service writes albums to Immich. Use `true` while testing;
@@ -115,7 +116,7 @@ Create a dedicated Immich API key with the following minimal permissions for the
 - `albumAsset.create` (add assets to an album)
 - `albumAsset.delete` (remove assets from an album)
 - `archive.read` (optional)
-- `face.read` (optional — for face-based features)
+- `face.read` (recommended — use Immich's own face detections for face-based scoring)
 - `memory.read` (optional)
 - `person.read` (optional)
 - `person.statistics` (optional)

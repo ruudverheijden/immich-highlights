@@ -111,6 +111,14 @@ class ImmichClient:
         resp.raise_for_status()
         return self._json(resp)
 
+    def get_asset_faces(self, asset_id: str) -> List[dict]:
+        """Return Immich's own face detections for one asset."""
+        # Immich stores face boxes against the original asset dimensions. The
+        # analysis layer scales them to the preview image used for scoring.
+        resp = self.session.get(self._url("faces"), params={"id": asset_id}, timeout=10)
+        resp.raise_for_status()
+        return self._json(resp)
+
     def download_asset(self, asset_id: str, dest_path: str) -> str:
         url = self._url(f"assets/{asset_id}/original")
         resp = self.session.get(url, stream=True, timeout=30)
@@ -249,16 +257,10 @@ class ImmichClient:
         except Exception as e:
             checks["tag.read"] = (False, str(e))
 
-        # face read
-        try:
-            params = {"limit": 1}
-            r = self.session.get(self._url("faces"), params=params, timeout=5)
-            checks["face.read"] = (
-                r.status_code == 200,
-                str(r.status_code),
-            )
-        except Exception as e:
-            checks["face.read"] = (False, str(e))
+        # face.read needs an asset id, so a generic startup probe would return a
+        # false failure on current Immich versions. Per-asset face lookups are
+        # mandatory for face scoring and will stop the run if they fail.
+        checks["face.read"] = (None, "unchecked")
 
         # Write-type permissions cannot be safely validated by creating data here.
         write_perms = [

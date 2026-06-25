@@ -162,13 +162,22 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
     score_details = asset.get("score_details", {})
     components = score_details.get("components", {})
     inputs = score_details.get("inputs", {})
+    faces_json = json.dumps(inputs.get("faces", []))
+    dimensions_json = json.dumps(inputs.get("dimensions", []))
     link = immich_asset_url(immich_url, asset_id)
     thumbnail = asset.get("thumbnail_src") or immich_thumbnail_url(immich_url, asset_id)
     escaped_id = html.escape(asset_id)
     escaped_link = html.escape(link, quote=True)
     escaped_thumbnail = html.escape(thumbnail, quote=True)
+    escaped_faces = html.escape(faces_json, quote=True)
+    escaped_dimensions = html.escape(dimensions_json, quote=True)
     return f"""
-    <article class="card" data-asset-id="{escaped_id}">
+    <article
+      class="card"
+      data-asset-id="{escaped_id}"
+      data-faces="{escaped_faces}"
+      data-dimensions="{escaped_dimensions}"
+    >
       <a class="thumb-link" href="{escaped_link}" target="_blank" rel="noreferrer">
         <img
           class="thumbnail"
@@ -176,6 +185,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
           alt="Thumbnail for {escaped_id}"
           loading="lazy"
         >
+        <div class="face-overlay" aria-hidden="true"></div>
       </a>
       <header>
         <div>
@@ -275,6 +285,7 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
     }}
     .thumb-link {{
       display: block;
+      position: relative;
       margin: -4px -4px 14px;
       overflow: hidden;
       border-radius: 6px;
@@ -284,7 +295,39 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
       display: block;
       width: 100%;
       aspect-ratio: 4 / 3;
-      object-fit: cover;
+      object-fit: contain;
+    }}
+    .face-overlay {{
+      position: absolute;
+      inset: 0;
+      pointer-events: none;
+      display: none;
+    }}
+    body.show-face-overlays .face-overlay {{
+      display: block;
+    }}
+    .face-box {{
+      position: absolute;
+      border: 3px solid #19c37d;
+      border-radius: 4px;
+      box-shadow: 0 0 0 1px rgb(0 0 0 / 0.55);
+    }}
+    .toolbar {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+      align-items: center;
+      margin-top: 16px;
+    }}
+    button {{
+      border: 1px solid #cbd3df;
+      border-radius: 6px;
+      background: white;
+      color: #172033;
+      cursor: pointer;
+      font: inherit;
+      font-weight: 800;
+      padding: 8px 12px;
     }}
     header {{
       display: flex;
@@ -391,6 +434,7 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
         color: #a8b3c6;
       }}
       select,
+      button,
       textarea {{
         background: #10141c;
         border-color: #3c4658;
@@ -414,14 +458,98 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
       local storage. Use the Immich links to inspect photos, then compare your
       judgement with the score components.
     </p>
+    <div class="toolbar">
+      <button id="toggle-faces" type="button">Show face boxes</button>
+      <span class="muted">Toggle recognized face boxes for all photos.</span>
+    </div>
     <section class="grid">
       {cards}
     </section>
   </main>
   <script>
     const prefix = "immich-highlights-review:";
+    const faceToggleKey = prefix + "show-face-overlays";
+    const faceButton = document.querySelector("#toggle-faces");
+
+    function parseJsonAttribute(element, name, fallback) {{
+      try {{
+        return JSON.parse(element.dataset[name] || "");
+      }} catch {{
+        return fallback;
+      }}
+    }}
+
+    function imageArea(container, dimensions) {{
+      const imageWidth = Number(dimensions[0]);
+      const imageHeight = Number(dimensions[1]);
+      if (!imageWidth || !imageHeight) {{
+        return null;
+      }}
+
+      const containerWidth = container.clientWidth;
+      const containerHeight = container.clientHeight;
+      const imageAspect = imageWidth / imageHeight;
+      const containerAspect = containerWidth / containerHeight;
+
+      if (containerAspect > imageAspect) {{
+        const height = containerHeight;
+        const width = height * imageAspect;
+        return {{ x: (containerWidth - width) / 2, y: 0, width, height }};
+      }}
+
+      const width = containerWidth;
+      const height = width / imageAspect;
+      return {{ x: 0, y: (containerHeight - height) / 2, width, height }};
+    }}
+
+    function renderFaceBoxes(card) {{
+      const faces = parseJsonAttribute(card, "faces", []);
+      const dimensions = parseJsonAttribute(card, "dimensions", []);
+      const container = card.querySelector(".thumb-link");
+      const overlay = card.querySelector(".face-overlay");
+      const area = imageArea(container, dimensions);
+      overlay.innerHTML = "";
+      if (!area) {{
+        return;
+      }}
+
+      const imageWidth = Number(dimensions[0]);
+      const imageHeight = Number(dimensions[1]);
+      for (const face of faces) {{
+        const box = document.createElement("div");
+        box.className = "face-box";
+        box.style.left = `${{area.x + (face.x / imageWidth) * area.width}}px`;
+        box.style.top = `${{area.y + (face.y / imageHeight) * area.height}}px`;
+        box.style.width = `${{(face.width / imageWidth) * area.width}}px`;
+        box.style.height = `${{(face.height / imageHeight) * area.height}}px`;
+        overlay.append(box);
+      }}
+    }}
+
+    function renderAllFaceBoxes() {{
+      for (const card of document.querySelectorAll(".card")) {{
+        renderFaceBoxes(card);
+      }}
+    }}
+
+    function setFaceOverlayVisibility(show) {{
+      document.body.classList.toggle("show-face-overlays", show);
+      faceButton.textContent = show ? "Hide face boxes" : "Show face boxes";
+      localStorage.setItem(faceToggleKey, show ? "true" : "false");
+      renderAllFaceBoxes();
+    }}
+
+    faceButton.addEventListener("click", () => {{
+      setFaceOverlayVisibility(!document.body.classList.contains("show-face-overlays"));
+    }});
+    window.addEventListener("resize", renderAllFaceBoxes);
+
     for (const card of document.querySelectorAll(".card")) {{
       const assetId = card.dataset.assetId;
+      const image = card.querySelector(".thumbnail");
+      image.addEventListener("load", () => renderFaceBoxes(card));
+      renderFaceBoxes(card);
+
       for (const field of card.querySelectorAll("[data-field]")) {{
         const key = prefix + assetId + ":" + field.dataset.field;
         field.value = localStorage.getItem(key) || "";
@@ -430,6 +558,7 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
         }});
       }}
     }}
+    setFaceOverlayVisibility(localStorage.getItem(faceToggleKey) === "true");
   </script>
 </body>
 </html>

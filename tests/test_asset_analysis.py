@@ -10,7 +10,6 @@ from src.asset_analysis import (
     compute_face_quality,
     compute_portrait_quality,
     compute_phash,
-    detect_faces,
     expand_box,
     get_exif_exposure_seconds,
     get_exif_iso,
@@ -18,6 +17,8 @@ from src.asset_analysis import (
     has_location,
     is_edited,
     is_favorite,
+    normalize_immich_face,
+    normalize_immich_faces,
     normalize_rating,
     parse_exposure_seconds,
     score_portrait_subject,
@@ -72,12 +73,82 @@ def test_blur_variance_sharp_vs_blurred():
     assert v_sharp > v_blur
 
 
-def test_phash_and_no_faces():
+def test_phash():
     img = Image.new("RGB", (300, 300), color=(128, 128, 128))
     ph = compute_phash(img)
     assert isinstance(ph, str)
-    faces = detect_faces(img)
-    assert faces == []
+
+
+def test_normalize_immich_face_scales_original_coordinates_to_preview():
+    """Immich face boxes are stored against the original asset dimensions."""
+    face = {
+        "id": "face-1",
+        "boundingBoxX1": 400,
+        "boundingBoxY1": 200,
+        "boundingBoxX2": 1200,
+        "boundingBoxY2": 1000,
+        "imageWidth": 4000,
+        "imageHeight": 3000,
+        "sourceType": "machine-learning",
+    }
+
+    normalized = normalize_immich_face(face, (1000, 750))
+
+    assert normalized == {
+        "x": 100,
+        "y": 50,
+        "width": 200,
+        "height": 200,
+        "id": "face-1",
+        "sourceType": "machine-learning",
+    }
+
+
+def test_normalize_immich_faces_filters_unusable_boxes():
+    """The Immich path should still protect scoring from invalid boxes."""
+    faces = [
+        {
+            "boundingBoxX1": 100,
+            "boundingBoxY1": 100,
+            "boundingBoxX2": 300,
+            "boundingBoxY2": 300,
+            "imageWidth": 1000,
+            "imageHeight": 1000,
+        },
+        {
+            "boundingBoxX1": 1100,
+            "boundingBoxY1": 1100,
+            "boundingBoxX2": 1200,
+            "boundingBoxY2": 1200,
+            "imageWidth": 1000,
+            "imageHeight": 1000,
+        },
+    ]
+
+    assert normalize_immich_faces(faces, (1000, 1000)) == [
+        {"x": 100, "y": 100, "width": 200, "height": 200}
+    ]
+
+
+def test_score_asset_can_use_immich_faces_instead_of_local_detection():
+    """Passing Immich faces should feed face count and face quality directly."""
+    img = make_checkerboard(400, 10)
+    immich_faces = [
+        {
+            "boundingBoxX1": 100,
+            "boundingBoxY1": 100,
+            "boundingBoxX2": 300,
+            "boundingBoxY2": 300,
+            "imageWidth": 400,
+            "imageHeight": 400,
+        }
+    ]
+
+    details = score_asset({}, img, immich_faces=immich_faces)
+
+    assert details["faces"] == [{"x": 100, "y": 100, "width": 200, "height": 200}]
+    assert details["face_count"] == 1
+    assert details["face_quality"] > 0
 
 
 def test_score_small_vs_regular():

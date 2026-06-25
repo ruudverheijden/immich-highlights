@@ -113,8 +113,9 @@ def run_once():
                 logger.exception("download failed for %s: %s", asset_id, e)
                 continue
             try:
+                immich_faces = client.get_asset_faces(asset_id)
                 pil = Image.open(tmp_path)
-                details = score_asset(meta, pil)
+                details = score_asset(meta, pil, immich_faces=immich_faces)
                 cs = checksum_file(tmp_path)
                 if isinstance(meta, dict):
                     exif_val = get_asset_exif(meta)
@@ -149,6 +150,9 @@ def run_once():
                 processed.append((asset_id, details["score"]))
             except UnidentifiedImageError as e:
                 logger.warning("unsupported image file for %s: %s", asset_id, e)
+            except requests.RequestException as e:
+                logger.exception("Immich face lookup failed for %s: %s", asset_id, e)
+                raise
             except Exception as e:
                 logger.exception("scoring failed for %s: %s", asset_id, e)
             finally:

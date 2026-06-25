@@ -40,7 +40,8 @@ class FakeSession:
         self.gets.append(
             {"url": url, "params": params, "stream": stream, "timeout": timeout}
         )
-        return FakeResponse({})
+        payload = self.responses.pop(0) if self.responses else {}
+        return FakeResponse(payload)
 
     def put(self, url, json=None, timeout=None):
         self.puts.append({"url": url, "json": json, "timeout": timeout})
@@ -106,6 +107,36 @@ def test_download_asset_preview_uses_thumbnail_preview_endpoint(tmp_path):
         "params": {"size": "preview"},
         "stream": True,
         "timeout": 30,
+    }
+
+
+def test_get_asset_faces_uses_immich_faces_endpoint():
+    """Immich's own face boxes should be available to the scoring pipeline."""
+    client = ImmichClient("http://immich.local", dry_run=True)
+    client.session = FakeSession(
+        [
+            [
+                {
+                    "id": "face-1",
+                    "boundingBoxX1": 100,
+                    "boundingBoxY1": 120,
+                    "boundingBoxX2": 220,
+                    "boundingBoxY2": 260,
+                    "imageWidth": 1000,
+                    "imageHeight": 800,
+                }
+            ]
+        ]
+    )
+
+    faces = client.get_asset_faces("asset-1")
+
+    assert faces[0]["id"] == "face-1"
+    assert client.session.gets[0] == {
+        "url": "http://immich.local/api/faces",
+        "params": {"id": "asset-1"},
+        "stream": False,
+        "timeout": 10,
     }
 
 

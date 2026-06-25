@@ -84,7 +84,12 @@ def test_write_review_html_exports_scoring_details(tmp_path):
         {
             "score": 87,
             "components": {"rating": 30, "blur": 10},
-            "inputs": {"blur_variance": 250, "face_count": 1},
+            "inputs": {
+                "blur_variance": 250,
+                "dimensions": [400, 300],
+                "face_count": 1,
+                "faces": [{"x": 40, "y": 50, "width": 80, "height": 90}],
+            },
         },
     )
     conn.close()
@@ -104,6 +109,10 @@ def test_write_review_html_exports_scoring_details(tmp_path):
     assert "asset-1" in html
     assert "rating" in html
     assert "blur_variance" in html
+    assert 'id="toggle-faces"' in html
+    assert 'class="face-overlay"' in html
+    assert "data-faces=" in html
+    assert "data-dimensions=" in html
     assert "localStorage" in html
 
 

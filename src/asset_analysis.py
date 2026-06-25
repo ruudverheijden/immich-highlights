@@ -4,7 +4,6 @@ from PIL import ImageStat
 import cv2
 import imagehash
 import numpy as np
-import os
 
 try:
     from .scoring_engine import calculate_score_details
@@ -20,26 +19,92 @@ def compute_blur_variance(pil_image: Image.Image) -> float:
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
-def detect_faces(pil_image: Image.Image) -> list[dict]:
-    """Return best-effort frontal face boxes in image coordinates."""
-    arr = np.array(pil_image.convert("RGB"))
-    gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
-    cascade_path = os.path.join(
-        cv2.data.haarcascades, "haarcascade_frontalface_default.xml"
-    )
-    face_cascade = cv2.CascadeClassifier(cascade_path)
-    # Haar cascades are lightweight and available offline, which fits scheduled jobs.
-    faces = face_cascade.detectMultiScale(
-        gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30)
-    )
+def clamp_face_box(face: dict, image_size: tuple[int, int]) -> dict | None:
+    """Keep a face box inside image bounds, or drop it if it becomes empty."""
+    image_width, image_height = image_size
+    x = max(0, int(round(face["x"])))
+    y = max(0, int(round(face["y"])))
+    right = min(image_width, int(round(face["x"] + face["width"])))
+    bottom = min(image_height, int(round(face["y"] + face["height"])))
+    width = right - x
+    height = bottom - y
+    if width <= 0 or height <= 0:
+        return None
+    result = {
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+    }
+    for key in ("id", "personId", "sourceType"):
+        if key in face:
+            result[key] = face[key]
+    return result
+
+
+def normalize_immich_face(face: dict, image_size: tuple[int, int]) -> dict | None:
+    """Convert one Immich face response into preview-image coordinates."""
+    image_width, image_height = image_size
+    if image_width <= 0 or image_height <= 0:
+        return None
+
+    source_width = face.get("imageWidth") or image_width
+    source_height = face.get("imageHeight") or image_height
+    try:
+        scale_x = image_width / float(source_width)
+        scale_y = image_height / float(source_height)
+    except (TypeError, ValueError, ZeroDivisionError):
+        return None
+
+    try:
+        if all(
+            key in face
+            for key in (
+                "boundingBoxX1",
+                "boundingBoxY1",
+                "boundingBoxX2",
+                "boundingBoxY2",
+            )
+        ):
+            x = float(face["boundingBoxX1"]) * scale_x
+            y = float(face["boundingBoxY1"]) * scale_y
+            width = (
+                float(face["boundingBoxX2"]) - float(face["boundingBoxX1"])
+            ) * scale_x
+            height = (
+                float(face["boundingBoxY2"]) - float(face["boundingBoxY1"])
+            ) * scale_y
+        else:
+            x = float(face["x"]) * scale_x
+            y = float(face["y"]) * scale_y
+            width = float(face["width"]) * scale_x
+            height = float(face["height"]) * scale_y
+    except (KeyError, TypeError, ValueError):
+        return None
+
+    normalized = {
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+    }
+    for key in ("id", "personId", "sourceType"):
+        if key in face:
+            normalized[key] = face[key]
+
+    return clamp_face_box(normalized, image_size)
+
+
+def normalize_immich_faces(
+    faces: list[dict], image_size: tuple[int, int]
+) -> list[dict]:
+    """Normalize Immich face boxes and discard structurally invalid boxes."""
     return [
-        {
-            "x": int(x),
-            "y": int(y),
-            "width": int(width),
-            "height": int(height),
-        }
-        for x, y, width, height in faces
+        normalized
+        for face in faces
+        if isinstance(face, dict)
+        for normalized in [normalize_immich_face(face, image_size)]
+        if normalized is not None
     ]
 
 
@@ -306,7 +371,11 @@ def compute_portrait_quality(pil_image: Image.Image, faces: list[dict]) -> dict:
     }
 
 
-def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
+def collect_image_details(
+    asset_meta: dict,
+    pil_image: Image.Image,
+    immich_faces: list[dict] | None = None,
+) -> dict:
     """Collect image and metadata signals used by the scoring rules."""
     details = {}
     try:
@@ -318,12 +387,11 @@ def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
     details["dimensions"] = pil_image.size
 
     try:
-        details["faces"] = detect_faces(pil_image)
+        details["faces"] = normalize_immich_faces(immich_faces or [], pil_image.size)
         details["face_count"] = len(details["faces"])
         details["face_quality"] = compute_best_face_quality(pil_image, details["faces"])
     except Exception:
-        # Face detection is helpful but optional; OpenCV data issues should not
-        # drop an otherwise valid image from the scorer.
+        # Malformed face metadata should not drop an otherwise valid image.
         details["faces"] = []
         details["face_count"] = 0
         details["face_quality"] = 0
@@ -354,9 +422,13 @@ def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
     return details
 
 
-def score_asset(asset_meta: dict, pil_image: Image.Image) -> dict:
+def score_asset(
+    asset_meta: dict,
+    pil_image: Image.Image,
+    immich_faces: list[dict] | None = None,
+) -> dict:
     """Analyze an asset and attach its final highlight score."""
-    details = collect_image_details(asset_meta, pil_image)
+    details = collect_image_details(asset_meta, pil_image, immich_faces=immich_faces)
     score_details = calculate_score_details(details)
     details["score"] = score_details["score"]
     details["score_details"] = score_details
