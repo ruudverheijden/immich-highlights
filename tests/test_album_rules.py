@@ -1,6 +1,8 @@
 from datetime import datetime, timezone
 
-from src.album_rules import build_time_album_rules
+import pytest
+
+from src.album_rules import build_time_album_rules, load_album_rules
 
 
 def test_build_time_album_rules_creates_rolling_windows():
@@ -21,3 +23,87 @@ def test_build_time_album_rules_creates_rolling_windows():
     assert all(rule.taken_before_iso() == "2026-06-25T12:00:00+00:00" for rule in rules)
     assert all(rule.max_candidates == 250 for rule in rules)
     assert all(rule.limit == 20 for rule in rules)
+
+
+def test_load_album_rules_reads_custom_toml_config(tmp_path):
+    """Users should be able to change generated albums without code changes."""
+    config_path = tmp_path / "albums.toml"
+    config_path.write_text(
+        """
+[[albums]]
+name = "Highlights: Weekend"
+bucket = "weekend"
+window_days = 3
+limit = 8
+max_candidates = 40
+enabled = true
+
+[[albums]]
+name = "Disabled"
+bucket = "disabled"
+window_days = 10
+limit = 5
+enabled = false
+""".strip()
+    )
+    now = datetime(2026, 6, 25, 12, 0, tzinfo=timezone.utc)
+
+    rules = load_album_rules(str(config_path), now=now, default_max_candidates=100)
+
+    assert len(rules) == 1
+    assert rules[0].name == "Highlights: Weekend"
+    assert rules[0].bucket == "weekend"
+    assert rules[0].taken_after_iso() == "2026-06-22T12:00:00+00:00"
+    assert rules[0].taken_before_iso() == "2026-06-25T12:00:00+00:00"
+    assert rules[0].limit == 8
+    assert rules[0].max_candidates == 40
+
+
+def test_load_album_rules_uses_env_default_max_candidates(tmp_path):
+    """Albums can omit max_candidates and inherit the runtime default."""
+    config_path = tmp_path / "albums.toml"
+    config_path.write_text(
+        """
+[[albums]]
+name = "Highlights: Recent"
+bucket = "recent"
+window_days = 14
+limit = 12
+""".strip()
+    )
+
+    rules = load_album_rules(str(config_path), default_max_candidates=77)
+
+    assert rules[0].max_candidates == 77
+
+
+def test_load_album_rules_falls_back_to_defaults_when_file_is_missing(tmp_path):
+    """Existing installs should keep working until a config file is mounted."""
+    now = datetime(2026, 6, 25, 12, 0, tzinfo=timezone.utc)
+
+    rules = load_album_rules(
+        str(tmp_path / "missing.toml"),
+        now=now,
+        default_max_candidates=42,
+    )
+
+    assert [rule.bucket for rule in rules] == ["last-week", "last-month", "last-year"]
+    assert all(rule.max_candidates == 42 for rule in rules)
+
+
+def test_load_album_rules_rejects_invalid_values(tmp_path):
+    """Bad album config should fail loudly at startup."""
+    config_path = tmp_path / "albums.toml"
+    config_path.write_text(
+        """
+[[albums]]
+name = "Broken"
+bucket = "broken"
+window_days = "7"
+limit = 15
+enabled = "true"
+""".strip()
+    )
+
+    with pytest.raises(ValueError, match="enabled"):
+        load_album_rules(str(config_path))

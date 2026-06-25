@@ -3,5 +3,6 @@ __pycache__/
 db/
 log/
 review/
+albums.toml
 .env
 .venv/

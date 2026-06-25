@@ -21,13 +21,20 @@ cp .env.example .env
 # Edit .env with your Immich API URL, key, and other settings
 ```
 
-3. Run once:
+3. Optional: customize generated albums:
+
+```bash
+cp albums.toml.example albums.toml
+# Edit albums.toml with the highlight albums you want
+```
+
+4. Run once:
 
 ```bash
 python src/scorer.py
 ```
 
-4. Docker (build & run):
+5. Docker (build & run):
 
 ```bash
 docker compose up --build -d
@@ -50,7 +57,28 @@ if you prefer direct Immich thumbnail URLs.
 ## Generated albums
 
 The scorer uses Immich metadata search to build candidate sets before scoring.
-It currently creates rolling time-window albums:
+Generated albums are configured in `albums.toml`:
+
+```toml
+[[albums]]
+name = "Highlights: Last Week"
+bucket = "last-week"
+window_days = 7
+limit = 15
+max_candidates = 100
+enabled = true
+```
+
+Each `[[albums]]` entry creates one rolling time-window album:
+
+- `name`: the Immich album name
+- `bucket`: stable internal id used to update the same generated album later
+- `window_days`: how far back Immich should search by taken date
+- `limit`: maximum number of top-scoring photos to put in the album
+- `max_candidates`: maximum number of Immich search results to score for this album
+- `enabled`: set to `false` to keep the config entry but skip the album
+
+The default config creates:
 
 - `Highlights: Last Week` for photos taken in the last 7 days
 - `Highlights: Last Month` for photos taken in the last 30 days
@@ -61,6 +89,14 @@ candidates, stores the score details in SQLite, and then syncs the generated
 album to the current top results. If an asset checksum is already present in the
 database, the stored score is reused instead of downloading and analyzing the
 preview again.
+
+For Docker, the image includes the default `/app/albums.toml`. To customize it,
+copy `albums.toml.example` to `albums.toml` and mount it over that path:
+
+```yaml
+volumes:
+  - ./albums.toml:/app/albums.toml:ro
+```
 
 # TODO
 - Extend scoring, deduplication, and scheduling in follow-up iterations.
@@ -117,6 +153,11 @@ Configure the service by copying `.env.example` to `.env` and editing the values
   Python logging level, such as `INFO`, `DEBUG`, `WARNING`, or `ERROR`. Use
   `INFO` for normal runs and `DEBUG` only when you add debug logs. Must be one
   of `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Default: `INFO`.
+
+- `SCORER_ALBUM_CONFIG_PATH`
+  Path to the TOML file that defines generated time-based albums. If the file is
+  missing, the built-in default albums are used. Default: `./albums.toml` for
+  local runs; the Docker image sets this to `/app/albums.toml`.
 
 # Required API key permissions
 

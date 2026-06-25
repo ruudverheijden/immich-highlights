@@ -9,12 +9,13 @@ from config import (
     SCORER_MAX_ASSETS,
     TEMP_DIR,
     LOG_LEVEL,
+    ALBUM_CONFIG_PATH,
 )
 from immich_client import ImmichClient
 from db import init_db
 from album_manager import AlbumManager
 from album_generator import generate_albums
-from album_rules import build_time_album_rules
+from album_rules import load_album_rules
 
 
 logging.basicConfig(level=LOG_LEVEL)
@@ -59,9 +60,9 @@ def run_once():
         logger.warning("Permission verification failed: %s", e)
     alb_mgr = AlbumManager(client, conn)
 
-    rules = build_time_album_rules(
-        max_candidates=SCORER_MAX_ASSETS,
-        album_limit=15,
+    rules = load_album_rules(
+        ALBUM_CONFIG_PATH,
+        default_max_candidates=SCORER_MAX_ASSETS,
     )
     try:
         generate_albums(

@@ -71,3 +71,4 @@ SCORER_SCAN_INTERVAL_HOURS = parse_positive_int_env("SCORER_SCAN_INTERVAL_HOURS"
 SCORER_MAX_ASSETS = parse_positive_int_env("SCORER_MAX_ASSETS", "100", max_value=1000)
 TEMP_DIR = parse_non_empty_env("SCORER_TEMP_DIR", "/tmp/scorer")
 SCORER_BUCKET = parse_non_empty_env("SCORER_BUCKET", "MVP")
+ALBUM_CONFIG_PATH = parse_non_empty_env("SCORER_ALBUM_CONFIG_PATH", "./albums.toml")

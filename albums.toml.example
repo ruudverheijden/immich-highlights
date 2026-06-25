@@ -1,0 +1,28 @@
+# Configure rolling time-based highlight albums.
+#
+# Copy this file to albums.toml for local runs, or mount your own file to
+# /app/albums.toml in Docker.
+
+[[albums]]
+name = "Highlights: Last Week"
+bucket = "last-week"
+window_days = 7
+limit = 15
+max_candidates = 100
+enabled = true
+
+[[albums]]
+name = "Highlights: Last Month"
+bucket = "last-month"
+window_days = 30
+limit = 15
+max_candidates = 100
+enabled = true
+
+[[albums]]
+name = "Highlights: Last Year"
+bucket = "last-year"
+window_days = 365
+limit = 15
+max_candidates = 100
+enabled = true

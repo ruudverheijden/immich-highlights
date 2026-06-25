@@ -8,9 +8,13 @@ services:
       SCORER_DRY_RUN: ${SCORER_DRY_RUN:-true}
       SCORER_SCAN_INTERVAL_HOURS: 24
       SCORER_DB_PATH: /app/db/scorer.db
+      SCORER_ALBUM_CONFIG_PATH: /app/albums.toml
       TZ: UTC
     volumes:
       - ./db:/app/db
       - ./log:/app/log
       - /tmp/scorer:/tmp/scorer
+      # Optional: copy albums.toml.example to albums.toml and uncomment this
+      # line to customize generated albums without rebuilding the image.
+      # - ./albums.toml:/app/albums.toml:ro
     restart: unless-stopped
