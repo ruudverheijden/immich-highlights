@@ -13,10 +13,12 @@ from src.db import get_processed_asset, init_db, upsert_processed_asset
 class FakeClient:
     """Small Immich client double for album-generator tests."""
 
-    def __init__(self):
+    def __init__(self, count_results=None):
         self.iter_calls = []
         self.smart_calls = []
+        self.count_calls = []
         self.metadata_calls = []
+        self.count_results = list(count_results or [])
 
     def iter_assets(self, page_size, max_assets, taken_after=None, taken_before=None):
         self.iter_calls.append(
@@ -56,6 +58,18 @@ class FakeClient:
             }
         )
         return iter([{"id": "a2"}])
+
+    def count_assets(self, taken_after=None, taken_before=None, stop_at=None):
+        self.count_calls.append(
+            {
+                "taken_after": taken_after,
+                "taken_before": taken_before,
+                "stop_at": stop_at,
+            }
+        )
+        if self.count_results:
+            return self.count_results.pop(0)
+        return 500
 
     def download_asset_preview(self, asset_id, dest_path):
         Image.new("RGB", (800, 600), color=(120, 120, 120)).save(
@@ -162,8 +176,15 @@ def test_collect_content_filter_matches_scopes_smart_search_to_rule_window():
         )
     ]
 
-    matches = collect_content_filter_matches(client, make_rule(), filters)
+    matches = collect_content_filter_matches(client, make_rule(), filters, {"a2"})
 
+    assert client.count_calls == [
+        {
+            "taken_after": "2026-06-18T00:00:00+00:00",
+            "taken_before": "2026-06-25T00:00:00+00:00",
+            "stop_at": 500,
+        }
+    ]
     assert client.smart_calls == [
         {
             "query": "screenshot",
@@ -178,6 +199,30 @@ def test_collect_content_filter_matches_scopes_smart_search_to_rule_window():
             {"label": "screenshot", "query": "screenshot", "penalty": -40, "rank": 1}
         ]
     }
+
+
+def test_collect_content_filter_matches_expands_small_search_pool():
+    """Smart-search filters need enough context to avoid weak ranked matches."""
+    client = FakeClient(count_results=[100, 250, 600])
+    filters = [
+        ContentFilter(
+            label="screenshot",
+            query="screenshot",
+            penalty=-40,
+            max_results=25,
+            min_search_pool=500,
+        )
+    ]
+
+    matches = collect_content_filter_matches(client, make_rule(), filters, {"a2"})
+
+    assert [call["taken_after"] for call in client.count_calls] == [
+        "2026-06-18T00:00:00+00:00",
+        "2026-06-11T00:00:00+00:00",
+        "2026-05-28T00:00:00+00:00",
+    ]
+    assert client.smart_calls[0]["taken_after"] == "2026-05-28T00:00:00+00:00"
+    assert matches["a2"][0]["rank"] == 1
 
 
 def test_score_or_reuse_asset_stores_content_filter_penalty(tmp_path):

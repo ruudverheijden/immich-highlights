@@ -32,6 +32,7 @@ class ContentFilter:
     query: str
     penalty: int
     max_results: int
+    min_search_pool: int = 500
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -84,18 +85,21 @@ def build_default_content_filters() -> list[ContentFilter]:
             query="screenshot",
             penalty=-40,
             max_results=25,
+            min_search_pool=500,
         ),
         ContentFilter(
             label="document",
             query="document receipt paper with text",
             penalty=-25,
             max_results=25,
+            min_search_pool=500,
         ),
         ContentFilter(
             label="display",
             query="computer screen phone screen monitor",
             penalty=-20,
             max_results=25,
+            min_search_pool=500,
         ),
     ]
 
@@ -225,6 +229,13 @@ def _content_filter_from_config(content_filter: dict, index: int) -> ContentFilt
             "max_results",
             index,
             100,
+            prefix="Content filter",
+        ),
+        min_search_pool=_optional_positive_int(
+            content_filter,
+            "min_search_pool",
+            index,
+            500,
             prefix="Content filter",
         ),
     )

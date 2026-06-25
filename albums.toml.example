@@ -35,6 +35,7 @@ label = "screenshot"
 query = "screenshot"
 penalty = -40
 max_results = 25
+min_search_pool = 500
 enabled = true
 
 [[content_filters]]
@@ -42,6 +43,7 @@ label = "paperwork"
 query = "document paperwork form letter contract"
 penalty = -25
 max_results = 25
+min_search_pool = 500
 enabled = true
 
 [[content_filters]]
@@ -49,6 +51,7 @@ label = "whiteboard"
 query = "whiteboard presentation slide notes"
 penalty = -15
 max_results = 15
+min_search_pool = 500
 enabled = true
 
 [[content_filters]]
@@ -56,6 +59,7 @@ label = "receipt"
 query = "receipt invoice bill payment slip"
 penalty = -30
 max_results = 25
+min_search_pool = 500
 enabled = true
 
 [[content_filters]]
@@ -63,6 +67,7 @@ label = "product-photo"
 query = "product packaging label barcode"
 penalty = -20
 max_results = 20
+min_search_pool = 500
 enabled = true
 
 [[content_filters]]
@@ -70,6 +75,7 @@ label = "food-menu"
 query = "restaurant menu food menu menu card"
 penalty = -20
 max_results = 20
+min_search_pool = 500
 enabled = true
 
 [[content_filters]]
@@ -77,4 +83,5 @@ label = "shopping"
 query = "store shelf price tag shopping product display"
 penalty = -15
 max_results = 20
+min_search_pool = 500
 enabled = true

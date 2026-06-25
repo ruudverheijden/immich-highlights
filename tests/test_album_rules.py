@@ -48,6 +48,7 @@ label = "screenshot"
 query = "screenshot"
 penalty = -40
 max_results = 25
+min_search_pool = 300
 enabled = true
 
 [[content_filters]]
@@ -86,6 +87,7 @@ enabled = false
     assert content_filters[0].query == "screenshot"
     assert content_filters[0].penalty == -40
     assert content_filters[0].max_results == 25
+    assert content_filters[0].min_search_pool == 300
 
 
 def test_load_album_rules_uses_env_default_max_candidates(tmp_path):

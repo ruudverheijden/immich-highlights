@@ -1,6 +1,7 @@
 import hashlib
 import logging
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import requests
@@ -16,6 +17,7 @@ except ImportError:
 
 logger = logging.getLogger("album_generator")
 MAX_CONTENT_FILTER_PENALTY = -50
+CONTENT_FILTER_MAX_CONTEXT_DAYS = 365
 
 
 def checksum_file(path: str) -> str:
@@ -173,26 +175,91 @@ def iter_rule_assets(client, rule):
     )
 
 
+def content_filter_search_windows(rule):
+    """Yield widening context windows used to make smart-search filters reliable."""
+    # Immich smart search returns ranked results, not confidence scores. If we
+    # ask for the "best" screenshot-like photos inside a tiny album window, the
+    # last returned items may simply be the least-bad matches. Widening the
+    # context gives Immich enough photos to make the top results meaningful.
+    album_days = max(1, (rule.taken_before - rule.taken_after).days)
+    days = album_days
+    yielded = set()
+    while True:
+        window_days = max(album_days, min(days, CONTENT_FILTER_MAX_CONTEXT_DAYS))
+        if window_days not in yielded:
+            yielded.add(window_days)
+            yield rule.taken_before - timedelta(days=window_days), rule.taken_before
+        if window_days >= CONTENT_FILTER_MAX_CONTEXT_DAYS:
+            return
+        days *= 2
+
+
+def content_filter_context_window(client, rule, content_filter):
+    """Find the smallest widened window with enough photos for smart search."""
+    last_window = None
+    last_count = 0
+    for taken_after, taken_before in content_filter_search_windows(rule):
+        count = client.count_assets(
+            taken_after=taken_after.isoformat(),
+            taken_before=taken_before.isoformat(),
+            stop_at=content_filter.min_search_pool,
+        )
+        logger.info(
+            "Content filter '%s' context window for album '%s': "
+            "takenAfter=%s, takenBefore=%s, pool=%s, required=%s",
+            content_filter.label,
+            rule.name,
+            taken_after.isoformat(),
+            taken_before.isoformat(),
+            count,
+            content_filter.min_search_pool,
+        )
+        last_window = (taken_after, taken_before)
+        last_count = count
+        if count >= content_filter.min_search_pool:
+            return taken_after, taken_before, count
+    return (*last_window, last_count) if last_window else (None, None, 0)
+
+
 def collect_content_filter_matches(
-    client, rule, content_filters
+    client, rule, content_filters, candidate_asset_ids: set[str]
 ) -> dict[str, list[dict]]:
     """Run configured smart searches and index filter matches by asset id."""
     matches_by_asset_id = {}
     for content_filter in content_filters:
+        taken_after, taken_before, pool_count = content_filter_context_window(
+            client,
+            rule,
+            content_filter,
+        )
+        if pool_count < content_filter.min_search_pool:
+            logger.info(
+                "Skipping content filter '%s' for album '%s': "
+                "largest context pool has %s assets, required=%s",
+                content_filter.label,
+                rule.name,
+                pool_count,
+                content_filter.min_search_pool,
+            )
+            continue
+
         logger.info(
-            "Running content filter '%s' with smart search query=%r for album '%s'",
+            "Running content filter '%s' with smart search query=%r for album '%s' "
+            "against context pool of %s assets",
             content_filter.label,
             content_filter.query,
             rule.name,
+            pool_count,
         )
         filter_match_count = 0
+        filter_overlap_count = 0
         for rank, asset in enumerate(
             client.iter_smart_search_assets(
                 query=content_filter.query,
                 page_size=min(content_filter.max_results, 1000),
                 max_assets=content_filter.max_results,
-                taken_after=rule.taken_after_iso(),
-                taken_before=rule.taken_before_iso(),
+                taken_after=taken_after.isoformat(),
+                taken_before=taken_before.isoformat(),
             ),
             start=1,
         ):
@@ -200,6 +267,9 @@ def collect_content_filter_matches(
             if not asset_id:
                 continue
             filter_match_count += 1
+            if asset_id not in candidate_asset_ids:
+                continue
+            filter_overlap_count += 1
             logger.debug(
                 "Content filter '%s' rank=%s matched asset %s for album '%s'",
                 content_filter.label,
@@ -216,9 +286,11 @@ def collect_content_filter_matches(
                 }
             )
         logger.info(
-            "Content filter '%s' matched %s assets for album '%s'",
+            "Content filter '%s' returned %s ranked assets and matched %s "
+            "album candidates for album '%s'",
             content_filter.label,
             filter_match_count,
+            filter_overlap_count,
             rule.name,
         )
     logger.info(
@@ -246,15 +318,20 @@ def generate_album_for_rule(
         rule.taken_before_iso(),
     )
     Path(temp_dir).mkdir(parents=True, exist_ok=True)
+    candidates = list(iter_rule_assets(client, rule))
+    candidate_asset_ids = {
+        asset_id for asset in candidates if (asset_id := get_asset_id(asset))
+    }
     content_matches = collect_content_filter_matches(
         client,
         rule,
         content_filters or [],
+        candidate_asset_ids,
     )
     scored = []
     candidate_count = 0
     penalized_candidate_count = 0
-    for asset in iter_rule_assets(client, rule):
+    for asset in candidates:
         candidate_count += 1
         asset_id = get_asset_id(asset)
         asset_content_matches = content_matches.get(asset_id, [])

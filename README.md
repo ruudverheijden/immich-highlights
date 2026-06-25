@@ -73,6 +73,7 @@ label = "screenshot"
 query = "screenshot"
 penalty = -40
 max_results = 25
+min_search_pool = 500
 enabled = true
 ```
 
@@ -85,17 +86,43 @@ Each `[[albums]]` entry creates one rolling time-window album:
 - `max_candidates`: maximum number of Immich search results to score for this album
 - `enabled`: set to `false` to keep the config entry but skip the album
 
-Each `[[content_filters]]` entry runs an Immich smart search inside the same
-time window as each album. Assets found by those searches get labels in
+Each `[[content_filters]]` entry runs an Immich smart search to find content
+that should be penalized. Assets found by those searches get labels in
 `score_details_json` and receive the configured score penalty:
 
 - `label`: label stored in scoring details, such as `screenshot`
 - `query`: Immich smart-search query to run
 - `penalty`: score adjustment for matching assets, usually negative
-- `max_results`: maximum ranked smart-search results to fetch per album window.
+- `max_results`: maximum ranked smart-search results to fetch per filter run.
   Immich does not expose a similarity score here, so lower values keep labels
   limited to the strongest results.
+- `min_search_pool`: minimum number of photos Immich should be able to compare
+  before the filter is trusted. If the album window is smaller than this, the
+  service automatically widens the search context and then only applies matches
+  that are also in the original album candidates.
 - `enabled`: set to `false` to keep the config entry but skip the filter
+
+Content filters are intentionally a little more careful than a direct Immich
+smart search. Immich returns ranked matches, but it does not expose an absolute
+confidence score. If a filter searches a small album window, Immich can still
+return the "best" results even when none are truly good matches. That creates
+false positives.
+
+To reduce that, the service uses this flow:
+
+1. Build the normal album candidate list from the album's `window_days`.
+2. For each content filter, start smart search with the same date window.
+3. If that window has fewer than `min_search_pool` photos, automatically widen
+   the search context until there are enough photos to compare.
+4. Run Immich smart search in that wider context.
+5. Apply the penalty only to smart-search results that also appear in the
+   original album candidates.
+
+For example, a `Last Week` album may contain only 80 photos. A direct smart
+search for `computer screen` inside those 80 photos can produce weak matches.
+With `min_search_pool = 500`, the service may widen the context to several
+months, ask Immich for the strongest screen-like photos in that larger set, and
+then penalize only the matching photos from the original week.
 
 Smart-search queries are semantic, not strict keyword filters. A query with
 multiple words is treated as one natural-language phrase. It is not an `AND`
@@ -112,6 +139,7 @@ label = "computer-screen"
 query = "computer screen"
 penalty = -20
 max_results = 15
+min_search_pool = 500
 enabled = true
 
 [[content_filters]]
@@ -119,12 +147,16 @@ label = "phone-screen"
 query = "phone screen"
 penalty = -20
 max_results = 15
+min_search_pool = 500
 enabled = true
 ```
 
 Use `max_results` as the strictness knob. A high value fetches deeper ranked
 results and can label weak matches; a low value only labels the strongest
-matches. Start with `10` to `25`, export the review HTML, and tune from there.
+matches. Use `min_search_pool` as the reliability knob. A higher value makes the
+service widen the context more before trusting smart search. Start with
+`max_results = 10` to `25` and `min_search_pool = 500`, export the review HTML,
+and tune from there.
 
 The default config penalizes likely screenshots, documents/receipts, and display
 photos. If `albums.toml` is missing, those built-in defaults are used. If you
@@ -241,3 +273,12 @@ Create a dedicated Immich API key with the following minimal permissions for the
 The scorer performs a lightweight permission check at startup for API calls it
 actually uses. If you only want to test without writes, set `SCORER_DRY_RUN=true`
 in `.env`.
+
+# TODO
+Future functionalities to include:
+- Fine tune scoring
+- Deduplicate based on similarity of photos
+- Deduplicate based on location: only take the highest scoring photos if multiple photos are taken at roughly the same place and time
+- Test to service running in Docker on Synology
+- Test for large photo libraries
+- Add feature to force cleaning the database and start from scratch

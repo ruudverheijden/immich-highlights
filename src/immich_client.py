@@ -117,6 +117,32 @@ class ImmichClient:
         )
         return results.get("assets", {}).get("items", [])
 
+    def count_assets(
+        self,
+        taken_after: Optional[str] = None,
+        taken_before: Optional[str] = None,
+        stop_at: Optional[int] = None,
+    ) -> int:
+        """Count image assets in a search window using only asset.read permission."""
+        page = 1
+        total = 0
+        while True:
+            response = self.search_assets(
+                page=page,
+                size=1000,
+                taken_after=taken_after,
+                taken_before=taken_before,
+            )
+            asset_page = response.get("assets", {})
+            total += len(asset_page.get("items", []))
+            if stop_at is not None and total >= stop_at:
+                return stop_at
+
+            next_page = asset_page.get("nextPage")
+            if not next_page:
+                return total
+            page = int(next_page)
+
     def iter_assets(
         self,
         page_size: int = 1000,
