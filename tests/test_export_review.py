@@ -151,9 +151,14 @@ def test_write_review_html_exports_scoring_details(tmp_path):
     assert "data-faces=" in html
     assert "data-dimensions=" in html
     assert 'id="album-filter"' in html
+    assert 'id="content-filter"' in html
     assert "Highlights: Last Week" in html
     assert "data-albums=" in html
     assert "&quot;last-week&quot;" in html
+    assert "data-content-filters=" in html
+    assert "&quot;screenshot&quot;" in html
+    assert '<option value="any">Has any content label</option>' in html
+    assert '<option value="screenshot">screenshot</option>' in html
     assert "localStorage" in html
 
 

@@ -252,6 +252,18 @@ def render_content_filter_badges(inputs: dict) -> str:
     """
 
 
+def content_filter_labels(asset: dict) -> list[str]:
+    """Return unique content filter labels stored for one asset."""
+    inputs = asset.get("score_details", {}).get("inputs", {})
+    matches = inputs.get("content_filter_matches") or []
+    labels = []
+    for match in matches:
+        label = match.get("label") if isinstance(match, dict) else None
+        if label and label not in labels:
+            labels.append(label)
+    return labels
+
+
 def render_asset_card(asset: dict, immich_url: str) -> str:
     """Render one scored asset review card."""
     asset_id = asset["asset_id"]
@@ -262,6 +274,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
     dimensions_json = json.dumps(inputs.get("dimensions", []))
     albums = asset.get("albums", [])
     album_buckets_json = json.dumps([album["bucket"] for album in albums])
+    content_filter_labels_json = json.dumps(content_filter_labels(asset))
     link = immich_asset_url(immich_url, asset_id)
     thumbnail = asset.get("thumbnail_src") or immich_thumbnail_url(immich_url, asset_id)
     escaped_id = html.escape(asset_id)
@@ -270,6 +283,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
     escaped_faces = html.escape(faces_json, quote=True)
     escaped_dimensions = html.escape(dimensions_json, quote=True)
     escaped_album_buckets = html.escape(album_buckets_json, quote=True)
+    escaped_content_filter_labels = html.escape(content_filter_labels_json, quote=True)
     album_badges = "".join(
         f"<span>{html.escape(album['name'])}</span>" for album in albums
     )
@@ -286,6 +300,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
       data-faces="{escaped_faces}"
       data-dimensions="{escaped_dimensions}"
       data-albums="{escaped_album_buckets}"
+      data-content-filters="{escaped_content_filter_labels}"
     >
       <a class="thumb-link" href="{escaped_link}" target="_blank" rel="noreferrer">
         <img
@@ -356,6 +371,20 @@ def render_album_filter_options(albums: list[dict]) -> str:
     return "\n".join(options)
 
 
+def render_content_filter_options(assets: list[dict]) -> str:
+    """Render dropdown options for labels found in score details."""
+    labels = sorted(
+        {label for asset in assets for label in content_filter_labels(asset)}
+    )
+    options = ['<option value="all">All content labels</option>']
+    options.append('<option value="any">Has any content label</option>')
+    for label in labels:
+        escaped_label = html.escape(label, quote=True)
+        options.append(f'<option value="{escaped_label}">{html.escape(label)}</option>')
+    options.append('<option value="none">No content label</option>')
+    return "\n".join(options)
+
+
 def render_review_html(
     assets: list[dict],
     immich_url: str,
@@ -365,6 +394,7 @@ def render_review_html(
     albums = albums or []
     cards = "\n".join(render_asset_card(asset, immich_url) for asset in assets)
     album_options = render_album_filter_options(albums)
+    content_filter_options = render_content_filter_options(assets)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -447,6 +477,9 @@ def render_review_html(
     }}
     .album-filter {{
       min-width: 240px;
+    }}
+    .content-filter {{
+      min-width: 220px;
     }}
     button {{
       border: 1px solid #cbd3df;
@@ -634,6 +667,12 @@ def render_review_html(
           {album_options}
         </select>
       </label>
+      <label class="content-filter">
+        Content label
+        <select id="content-filter">
+          {content_filter_options}
+        </select>
+      </label>
       <button id="toggle-components" type="button">Show score components</button>
       <button id="toggle-inputs" type="button">Show scoring inputs</button>
       <button id="toggle-faces" type="button">Show face boxes</button>
@@ -646,12 +685,14 @@ def render_review_html(
     const prefix = "immich-highlights-review:";
     const faceToggleKey = prefix + "show-face-overlays";
     const albumFilterKey = prefix + "album-filter";
+    const contentFilterKey = prefix + "content-filter";
     const componentsToggleKey = prefix + "show-score-components";
     const inputsToggleKey = prefix + "show-scoring-inputs";
     const faceButton = document.querySelector("#toggle-faces");
     const componentsButton = document.querySelector("#toggle-components");
     const inputsButton = document.querySelector("#toggle-inputs");
     const albumFilter = document.querySelector("#album-filter");
+    const contentFilter = document.querySelector("#content-filter");
     const visibleCount = document.querySelector("#visible-count");
 
     function parseJsonAttribute(element, name, fallback) {{
@@ -749,12 +790,30 @@ def render_review_html(
       return albums.includes(selectedAlbum);
     }}
 
-    function applyAlbumFilter() {{
+    function cardMatchesContentFilter(card, selectedContentFilter) {{
+      if (selectedContentFilter === "all") {{
+        return true;
+      }}
+
+      const contentFilters = parseJsonAttribute(card, "contentFilters", []);
+      if (selectedContentFilter === "any") {{
+        return contentFilters.length > 0;
+      }}
+      if (selectedContentFilter === "none") {{
+        return contentFilters.length === 0;
+      }}
+      return contentFilters.includes(selectedContentFilter);
+    }}
+
+    function applyFilters() {{
       const selectedAlbum = albumFilter.value || "all";
+      const selectedContentFilter = contentFilter.value || "all";
       localStorage.setItem(albumFilterKey, selectedAlbum);
+      localStorage.setItem(contentFilterKey, selectedContentFilter);
       let count = 0;
       for (const card of document.querySelectorAll(".card")) {{
-        const visible = cardMatchesAlbum(card, selectedAlbum);
+        const visible = cardMatchesAlbum(card, selectedAlbum)
+          && cardMatchesContentFilter(card, selectedContentFilter);
         card.classList.toggle("hidden", !visible);
         if (visible) {{
           count += 1;
@@ -789,7 +848,12 @@ def render_review_html(
     if (!albumFilter.value) {{
       albumFilter.value = "all";
     }}
-    albumFilter.addEventListener("change", applyAlbumFilter);
+    contentFilter.value = localStorage.getItem(contentFilterKey) || "all";
+    if (!contentFilter.value) {{
+      contentFilter.value = "all";
+    }}
+    albumFilter.addEventListener("change", applyFilters);
+    contentFilter.addEventListener("change", applyFilters);
     window.addEventListener("resize", renderAllFaceBoxes);
 
     for (const card of document.querySelectorAll(".card")) {{
@@ -823,7 +887,7 @@ def render_review_html(
       "Show scoring inputs",
       inputsToggleKey
     );
-    applyAlbumFilter();
+    applyFilters();
   </script>
 </body>
 </html>
