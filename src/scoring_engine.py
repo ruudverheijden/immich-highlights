@@ -72,6 +72,15 @@ def score_contrast(stddev: float) -> int:
     return 0
 
 
+def score_brightness(brightness: float) -> int:
+    """Penalize images that are likely underexposed or overexposed."""
+    if brightness < 35:
+        return -10
+    if brightness > 225:
+        return -10
+    return 0
+
+
 def clamp_score(score: int) -> int:
     """Keep downstream storage and comparisons predictable."""
     return max(0, min(100, int(score)))
@@ -93,5 +102,8 @@ def calculate_score(details: dict) -> int:
 
     if "hist_std" in details:
         score += score_contrast(details["hist_std"])
+
+    if "brightness" in details:
+        score += score_brightness(details["brightness"])
 
     return clamp_score(score)

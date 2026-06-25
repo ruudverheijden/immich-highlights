@@ -104,6 +104,12 @@ def compute_contrast_stddev(pil_image: Image.Image):
     return sum(stat.stddev) / 3
 
 
+def compute_brightness(pil_image: Image.Image) -> float:
+    """Compute average luminance on a 0-255 scale."""
+    stat = ImageStat.Stat(pil_image.convert("L"))
+    return float(stat.mean[0])
+
+
 def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
     """Collect image and metadata signals used by the scoring rules."""
     details = {}
@@ -132,6 +138,11 @@ def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
 
     try:
         details["hist_std"] = compute_contrast_stddev(pil_image)
+    except Exception:
+        pass
+
+    try:
+        details["brightness"] = compute_brightness(pil_image)
     except Exception:
         pass
 

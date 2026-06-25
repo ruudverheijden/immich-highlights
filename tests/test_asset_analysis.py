@@ -3,6 +3,7 @@ from PIL import Image, ImageDraw, ImageFilter
 from src.asset_analysis import (
     score_asset,
     collect_image_details,
+    compute_brightness,
     compute_blur_variance,
     compute_contrast_stddev,
     compute_phash,
@@ -145,6 +146,15 @@ def test_contrast_stddev_reads_image_signal():
     assert compute_contrast_stddev(checkerboard) > 80
 
 
+def test_brightness_reads_image_luminance():
+    """Brightness is a cheap signal for underexposed and overexposed photos."""
+    dark = Image.new("RGB", (100, 100), color=(10, 10, 10))
+    bright = Image.new("RGB", (100, 100), color=(240, 240, 240))
+
+    assert compute_brightness(dark) == 10
+    assert compute_brightness(bright) == 240
+
+
 def test_collect_image_details_returns_scoring_inputs():
     """Detail collection should gather all inputs used by calculate_score."""
     img = Image.new("RGB", (800, 600), color=(120, 120, 120))
@@ -173,3 +183,4 @@ def test_collect_image_details_returns_scoring_inputs():
     assert details["is_favorite"]
     assert details["is_edited"]
     assert "hist_std" in details
+    assert "brightness" in details
