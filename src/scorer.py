@@ -133,13 +133,15 @@ def run_once():
                 # Log enough scoring context to understand why a photo made the cut.
                 logger.info(
                     "Scored photo %s (%s): score=%s, blur_variance=%s, "
-                    "face_count=%s, face_quality=%s, rating=%s, brightness=%s, url=%s",
+                    "face_count=%s, face_quality=%s, portrait_quality=%s, "
+                    "rating=%s, brightness=%s, url=%s",
                     asset_id,
                     meta.get("originalFileName", "unknown"),
                     details["score"],
                     details.get("blur_variance"),
                     details.get("face_count"),
                     details.get("face_quality"),
+                    details.get("portrait_quality"),
                     details.get("rating"),
                     details.get("brightness"),
                     immich_asset_url(asset_id),

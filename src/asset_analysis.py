@@ -1,4 +1,5 @@
 from PIL import Image
+from PIL import ImageDraw
 from PIL import ImageStat
 import cv2
 import imagehash
@@ -196,6 +197,96 @@ def compute_best_face_quality(pil_image: Image.Image, faces: list[dict]) -> int:
     return max(compute_face_quality(pil_image, face) for face in faces)
 
 
+def select_subject_box(image_size: tuple[int, int], faces: list[dict]) -> dict:
+    """Pick a likely subject box from faces, or fall back to a centered crop."""
+    if faces:
+        return max(faces, key=lambda face: face["width"] * face["height"])
+
+    image_width, image_height = image_size
+    box_width = int(image_width * 0.4)
+    box_height = int(image_height * 0.5)
+    return {
+        "x": int((image_width - box_width) / 2),
+        "y": int((image_height - box_height) / 2),
+        "width": box_width,
+        "height": box_height,
+    }
+
+
+def expand_box(face: dict, image_size: tuple[int, int], scale: float) -> dict:
+    """Expand a box around its center while keeping it inside image bounds."""
+    image_width, image_height = image_size
+    center_x = face["x"] + face["width"] / 2
+    center_y = face["y"] + face["height"] / 2
+    width = min(image_width, int(face["width"] * scale))
+    height = min(image_height, int(face["height"] * scale))
+    x = max(0, int(center_x - width / 2))
+    y = max(0, int(center_y - height / 2))
+    x = min(x, max(0, image_width - width))
+    y = min(y, max(0, image_height - height))
+    return {"x": x, "y": y, "width": width, "height": height}
+
+
+def crop_box(pil_image: Image.Image, box: dict) -> Image.Image:
+    """Crop an arbitrary image box."""
+    x = box["x"]
+    y = box["y"]
+    return pil_image.crop((x, y, x + box["width"], y + box["height"]))
+
+
+def crop_background_ring(pil_image: Image.Image, subject_box: dict) -> Image.Image:
+    """Crop the area around a subject to approximate background sharpness."""
+    outer_box = expand_box(subject_box, pil_image.size, 2.2)
+    outer = crop_box(pil_image, outer_box)
+    mask = Image.new("L", outer.size, 255)
+    inner_x = max(0, subject_box["x"] - outer_box["x"])
+    inner_y = max(0, subject_box["y"] - outer_box["y"])
+    inner = (
+        inner_x,
+        inner_y,
+        inner_x + subject_box["width"],
+        inner_y + subject_box["height"],
+    )
+    ImageDraw.Draw(mask).rectangle(inner, fill=0)
+    background = Image.new("RGB", outer.size)
+    background.paste(outer.convert("RGB"), mask=mask)
+    return background
+
+
+def score_portrait_subject(subject_box: dict, image_size: tuple[int, int]) -> int:
+    """Reward subject boxes that are centered and not too small or too large."""
+    size_score = score_face_size(subject_box, image_size)
+    center_score = score_face_center(subject_box, image_size)
+    return min(4, int((size_score + center_score) / 3))
+
+
+def compute_portrait_quality(pil_image: Image.Image, faces: list[dict]) -> dict:
+    """Estimate sharp-subject/soft-background portrait-like quality."""
+    subject_box = expand_box(
+        select_subject_box(pil_image.size, faces), pil_image.size, 1.6
+    )
+    subject_image = crop_box(pil_image, subject_box)
+    background_image = crop_background_ring(pil_image, subject_box)
+    subject_sharpness = compute_blur_variance(subject_image)
+    background_sharpness = compute_blur_variance(background_image)
+    blur_ratio = subject_sharpness / max(background_sharpness, 1.0)
+
+    quality = 0
+    if subject_sharpness > 150 and background_sharpness < 80:
+        quality += 10
+    if blur_ratio >= 2.5:
+        quality += 8
+    quality += score_portrait_subject(subject_box, pil_image.size)
+
+    return {
+        "portrait_quality": min(15, quality),
+        "subject_sharpness": subject_sharpness,
+        "background_sharpness": background_sharpness,
+        "subject_background_blur_ratio": blur_ratio,
+        "subject_box": subject_box,
+    }
+
+
 def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
     """Collect image and metadata signals used by the scoring rules."""
     details = {}
@@ -235,6 +326,11 @@ def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
         details["brightness"] = compute_brightness(pil_image)
     except Exception:
         pass
+
+    try:
+        details.update(compute_portrait_quality(pil_image, details["faces"]))
+    except Exception:
+        details["portrait_quality"] = 0
 
     return details
 

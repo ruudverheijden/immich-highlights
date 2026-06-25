@@ -9,6 +9,7 @@ from src.scoring_engine import (
     score_user_flags,
     score_brightness,
     score_contrast,
+    score_portrait_quality,
     clamp_score,
     calculate_score,
     calculate_score_details,
@@ -55,6 +56,8 @@ def test_contrast_helpers_and_clamp_score():
     assert score_brightness(20) == -10
     assert score_brightness(240) == -10
     assert score_brightness(120) == 0
+    assert score_portrait_quality(10) == 10
+    assert score_portrait_quality(30) == 15
     assert clamp_score(-10) == 0
     assert clamp_score(110) == 100
 
@@ -74,6 +77,7 @@ def test_calculate_score_combines_scoring_inputs():
         "is_edited": True,
         "hist_std": 100,
         "brightness": 120,
+        "portrait_quality": 15,
     }
 
     assert calculate_score(details) == 100
@@ -103,6 +107,7 @@ def test_calculate_score_details_keeps_inputs_and_components():
     assert score_details["raw_score"] == -10
     assert score_details["components"]["blur"] == -20
     assert score_details["components"]["brightness"] == -10
+    assert score_details["components"]["portrait_quality"] == 0
     assert score_details["inputs"]["blur_variance"] == 10
     assert score_details["inputs"]["face_count"] == 0
     assert "exif" not in score_details["inputs"]

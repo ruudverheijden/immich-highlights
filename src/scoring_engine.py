@@ -86,6 +86,11 @@ def score_brightness(brightness: float) -> int:
     return 0
 
 
+def score_portrait_quality(portrait_quality: int) -> int:
+    """Reward sharp-subject/soft-background photos without dominating the score."""
+    return max(0, min(15, int(portrait_quality)))
+
+
 def clamp_score(score: int) -> int:
     """Keep downstream storage and comparisons predictable."""
     return max(0, min(100, int(score)))
@@ -115,6 +120,7 @@ def calculate_score_details(details: dict) -> dict:
         "brightness": (
             score_brightness(details["brightness"]) if "brightness" in details else 0
         ),
+        "portrait_quality": score_portrait_quality(details.get("portrait_quality", 0)),
     }
     raw_score = sum(components.values())
     final_score = clamp_score(raw_score)

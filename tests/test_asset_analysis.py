@@ -8,8 +8,10 @@ from src.asset_analysis import (
     compute_blur_variance,
     compute_contrast_stddev,
     compute_face_quality,
+    compute_portrait_quality,
     compute_phash,
     detect_faces,
+    expand_box,
     get_exif_exposure_seconds,
     get_exif_iso,
     get_asset_exif,
@@ -18,10 +20,12 @@ from src.asset_analysis import (
     is_favorite,
     normalize_rating,
     parse_exposure_seconds,
+    score_portrait_subject,
     score_face_brightness,
     score_face_center,
     score_face_sharpness,
     score_face_size,
+    select_subject_box,
 )
 
 
@@ -187,6 +191,39 @@ def test_face_quality_helpers_penalize_weak_face_inputs():
     assert compute_best_face_quality(img, []) == 0
 
 
+def test_portrait_subject_helpers_prefer_large_centered_subjects():
+    """Portrait scoring should use a face first and reward centered subjects."""
+    face = {"x": 100, "y": 100, "width": 200, "height": 200}
+
+    assert select_subject_box((400, 400), [face]) == face
+    assert select_subject_box((400, 400), []) == {
+        "x": 120,
+        "y": 100,
+        "width": 160,
+        "height": 200,
+    }
+    assert expand_box(face, (400, 400), 1.6) == {
+        "x": 40,
+        "y": 40,
+        "width": 320,
+        "height": 320,
+    }
+    assert score_portrait_subject(face, (400, 400)) == 4
+
+
+def test_portrait_quality_rewards_sharp_subject_soft_background():
+    """A sharp centered subject over a blurred background should get a bonus."""
+    background = make_checkerboard(400, 20).filter(ImageFilter.GaussianBlur(8))
+    subject = make_checkerboard(160, 4)
+    background.paste(subject, (120, 120))
+
+    result = compute_portrait_quality(background, [])
+
+    assert result["portrait_quality"] > 0
+    assert result["subject_sharpness"] > result["background_sharpness"]
+    assert result["subject_background_blur_ratio"] > 1
+
+
 def test_collect_image_details_returns_scoring_inputs():
     """Detail collection should gather all inputs used by calculate_score."""
     img = Image.new("RGB", (800, 600), color=(120, 120, 120))
@@ -218,3 +255,4 @@ def test_collect_image_details_returns_scoring_inputs():
     assert details["is_edited"]
     assert "hist_std" in details
     assert "brightness" in details
+    assert "portrait_quality" in details
