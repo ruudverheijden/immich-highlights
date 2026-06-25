@@ -53,7 +53,13 @@ class ImmichClient:
                 f"{preview!r}"
             ) from e
 
-    def search_assets(self, page: int = 1, size: int = 1000) -> dict:
+    def search_assets(
+        self,
+        page: int = 1,
+        size: int = 1000,
+        taken_after: Optional[str] = None,
+        taken_before: Optional[str] = None,
+    ) -> dict:
         """Search assets through Immich's documented paginated metadata endpoint."""
         # Immich metadata search endpoint is the stable way to page through assets.
         payload = {
@@ -63,17 +69,36 @@ class ImmichClient:
             "type": "IMAGE",
             "withExif": True,
         }
+        if taken_after:
+            payload["takenAfter"] = taken_after
+        if taken_before:
+            payload["takenBefore"] = taken_before
         resp = self.session.post(self._url("search/metadata"), json=payload, timeout=10)
         resp.raise_for_status()
         return self._json(resp)
 
-    def list_assets(self, page: int = 1, per_page: int = 20) -> List[dict]:
+    def list_assets(
+        self,
+        page: int = 1,
+        per_page: int = 20,
+        taken_after: Optional[str] = None,
+        taken_before: Optional[str] = None,
+    ) -> List[dict]:
         """Return one page of assets from Immich's metadata search endpoint."""
-        results = self.search_assets(page=page, size=per_page)
+        results = self.search_assets(
+            page=page,
+            size=per_page,
+            taken_after=taken_after,
+            taken_before=taken_before,
+        )
         return results.get("assets", {}).get("items", [])
 
     def iter_assets(
-        self, page_size: int = 1000, max_assets: Optional[int] = None
+        self,
+        page_size: int = 1000,
+        max_assets: Optional[int] = None,
+        taken_after: Optional[str] = None,
+        taken_before: Optional[str] = None,
     ) -> Iterator[dict]:
         """Yield assets page-by-page until Immich has no next page."""
         page = 1
@@ -87,6 +112,8 @@ class ImmichClient:
             response = self.search_assets(
                 page=page,
                 size=min(page_size, remaining) if remaining else page_size,
+                taken_after=taken_after,
+                taken_before=taken_before,
             )
             asset_page = response.get("assets", {})
             items = asset_page.get("items", [])
@@ -203,6 +230,29 @@ class ImmichClient:
             raise
         return self._json(resp)
 
+    def remove_assets_from_album(self, album_id: str, asset_ids: List[str]) -> dict:
+        """Remove assets from an existing Immich album."""
+        if self.dry_run:
+            return {
+                "album_id": album_id,
+                "removed": len(asset_ids),
+                "dry_run": True,
+            }
+        url = self._url(f"albums/{album_id}/assets")
+        payload = {"ids": asset_ids}
+        resp = self.session.delete(url, json=payload, timeout=10)
+        try:
+            resp.raise_for_status()
+        except requests.HTTPError as e:
+            if resp.status_code == 403:
+                raise PermissionError(
+                    "Immich refused removing assets from the existing album. "
+                    "Grant the API key the albumAsset.delete permission, or the "
+                    "scorer cannot keep generated albums in sync."
+                ) from e
+            raise
+        return self._json(resp)
+
     def verify_permissions(self) -> dict:
         """Perform lightweight checks to validate common Immich API permissions.
 
@@ -213,15 +263,6 @@ class ImmichClient:
         Returns a mapping of permission -> (ok: bool, detail: str).
         """
         checks = {}
-        # Server health is a useful first failure point before endpoint-specific checks.
-        try:
-            r = self.session.get(self._url("server/about"), timeout=5)
-            checks["server.about"] = (
-                r.status_code == 200,
-                str(r.status_code),
-            )
-        except Exception as e:
-            checks["server.about"] = (False, str(e))
 
         # asset read
         try:

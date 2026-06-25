@@ -8,6 +8,7 @@ class FakeImmichClient:
     def __init__(self):
         self.created = []
         self.updated = []
+        self.removed = []
 
     def create_album(self, name, asset_ids, description=""):
         self.created.append(
@@ -17,6 +18,10 @@ class FakeImmichClient:
 
     def add_assets_to_album(self, album_id, asset_ids):
         self.updated.append({"album_id": album_id, "asset_ids": asset_ids})
+        return [{"id": asset_id, "success": True} for asset_id in asset_ids]
+
+    def remove_assets_from_album(self, album_id, asset_ids):
+        self.removed.append({"album_id": album_id, "asset_ids": asset_ids})
         return [{"id": asset_id, "success": True} for asset_id in asset_ids]
 
 
@@ -65,11 +70,12 @@ def test_ensure_album_skips_update_when_assets_are_already_mapped(tmp_path):
     assert not result["updated"]
     assert client.created == []
     assert client.updated == []
+    assert client.removed == []
     assert get_album_mapping(conn, "monthly")["asset_ids"] == ["a1", "a2"]
 
 
-def test_ensure_album_adds_only_new_assets_to_existing_bucket_album(tmp_path):
-    """Later runs should only send assets not already known for the album."""
+def test_ensure_album_syncs_existing_bucket_album(tmp_path):
+    """Later runs should add new assets and remove stale generated assets."""
     conn = init_db(str(tmp_path / "test.db"))
     upsert_album_mapping(
         conn, "monthly", "album-1", "Highlights: monthly", ["a1", "a2"]
@@ -87,7 +93,10 @@ def test_ensure_album_adds_only_new_assets_to_existing_bucket_album(tmp_path):
     assert result["id"] == "album-1"
     assert result["updated"]
     assert result["added_asset_count"] == 1
+    assert result["removed_asset_count"] == 1
     assert result["add_result"] == [{"id": "a3", "success": True}]
+    assert result["remove_result"] == [{"id": "a1", "success": True}]
     assert client.created == []
     assert client.updated == [{"album_id": "album-1", "asset_ids": ["a3"]}]
-    assert get_album_mapping(conn, "monthly")["asset_ids"] == ["a1", "a2", "a3"]
+    assert client.removed == [{"album_id": "album-1", "asset_ids": ["a1"]}]
+    assert get_album_mapping(conn, "monthly")["asset_ids"] == ["a2", "a3"]

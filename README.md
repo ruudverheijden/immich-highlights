@@ -1,8 +1,10 @@
 # Immich Photo Highlight Scoring Service (MVP)
 
-This repository contains an MVP background service that scans an Immich instance, scores photos, and creates highlight albums via the Immich API.
+This repository contains an MVP background service that searches an Immich
+instance for time-based candidate photos, scores them, and creates highlight
+albums via the Immich API.
 
-Quick start (local):
+## Quick start (local)
 
 1. Create a virtualenv and install:
 
@@ -25,13 +27,13 @@ cp .env.example .env
 python src/scorer.py
 ```
 
-Docker (build & run):
+4. Docker (build & run):
 
 ```bash
 docker compose up --build -d
 ```
 
-Development review export:
+## Development review export
 
 ```bash
 python src/export_review.py
@@ -45,13 +47,26 @@ your browser's local storage. The export downloads thumbnails to
 browser authentication or remote thumbnail URLs. Use `--no-download-thumbnails`
 if you prefer direct Immich thumbnail URLs.
 
-TODO
-----
-- Extend scoring, deduplication, and scheduling in follow-up iterations.
-- Use Portrait type photos made on iOS or Android as scoring criteria, they are usually made for nice looking photos although the contain a lot of blur
+## Generated albums
 
-Environment variables
----------------------
+The scorer uses Immich metadata search to build candidate sets before scoring.
+It currently creates rolling time-window albums:
+
+- `Highlights: Last Week` for photos taken in the last 7 days
+- `Highlights: Last Month` for photos taken in the last 30 days
+- `Highlights: Last Year` for photos taken in the last 365 days
+
+Each album rule asks Immich for image assets in its date range, scores only those
+candidates, stores the score details in SQLite, and then syncs the generated
+album to the current top results. If an asset checksum is already present in the
+database, the stored score is reused instead of downloading and analyzing the
+preview again.
+
+# TODO
+- Extend scoring, deduplication, and scheduling in follow-up iterations.
+
+
+# Environment variables
 
 Configure the service by copying `.env.example` to `.env` and editing the values.
 
@@ -83,13 +98,15 @@ Configure the service by copying `.env.example` to `.env` and editing the values
   Must be a positive integer. Default: `24`.
 
 - `SCORER_MAX_ASSETS`
-  Maximum number of assets to process in one run. This protects large libraries
-  from long scans and makes test runs predictable. Must be a positive integer
-  up to `1000`. Default: `100`.
+  Maximum number of candidate assets to process per generated album rule. This
+  protects large libraries from long scans and makes test runs predictable. Must
+  be a positive integer up to `1000`. Default: `100`.
 
 - `SCORER_BUCKET`
-  Label used in generated album names. For example, `SCORER_BUCKET=Summer`
-  creates albums named `Highlights: Summer`. Must not be empty. Default: `MVP`.
+  Legacy label from the original single-album flow. The current time-based
+  generator creates `Highlights: Last Week`, `Highlights: Last Month`, and
+  `Highlights: Last Year` with fixed internal buckets. Must not be empty.
+  Default: `MVP`.
 
 - `SCORER_TEMP_DIR`
   Directory for temporary preview images downloaded from Immich while scoring.
@@ -101,8 +118,7 @@ Configure the service by copying `.env.example` to `.env` and editing the values
   `INFO` for normal runs and `DEBUG` only when you add debug logs. Must be one
   of `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Default: `INFO`.
 
-Required API permissions
-------------------------
+# Required API key permissions
 
 Create a dedicated Immich API key with the following minimal permissions for the scorer to operate properly:
 
@@ -120,8 +136,9 @@ Create a dedicated Immich API key with the following minimal permissions for the
 - `memory.read` (optional)
 - `person.read` (optional)
 - `person.statistics` (optional)
-- `server.about` (lightweight connectivity check)
 - `tag.create`, `tag.read`, `tag.update` (optional — for tag-based features)
 - `user.read` (optional)
 
-The scorer performs a lightweight permission check at startup (it will attempt harmless GET/OPTIONS requests). If you only want to test without writes, set `SCORER_DRY_RUN=true` in `.env`.
+The scorer performs a lightweight permission check at startup for API calls it
+actually uses. If you only want to test without writes, set `SCORER_DRY_RUN=true`
+in `.env`.

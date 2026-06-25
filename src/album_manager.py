@@ -25,24 +25,41 @@ class AlbumManager:
         if mapping:
             album_id = mapping["album_id"]
             existing_asset_ids = set(mapping.get("asset_ids", []))
+            desired_asset_ids = set(asset_ids)
             new_asset_ids = [
                 asset_id for asset_id in asset_ids if asset_id not in existing_asset_ids
             ]
-            if not new_asset_ids:
+            removed_asset_ids = [
+                asset_id
+                for asset_id in mapping.get("asset_ids", [])
+                if asset_id not in desired_asset_ids
+            ]
+            if not new_asset_ids and not removed_asset_ids:
                 return {
                     "id": album_id,
                     "albumName": mapping["album_name"] or name,
-                    "asset_count": len(mapping.get("asset_ids", [])),
+                    "asset_count": len(asset_ids),
                     "updated": False,
                 }
 
-            add_result = self.client.add_assets_to_album(album_id, new_asset_ids)
+            remove_result = None
+            if removed_asset_ids:
+                remove_result = self.client.remove_assets_from_album(
+                    album_id, removed_asset_ids
+                )
+
+            add_result = None
+            if new_asset_ids:
+                add_result = self.client.add_assets_to_album(album_id, new_asset_ids)
+
             result = {
                 "id": album_id,
                 "albumName": mapping["album_name"] or name,
                 "asset_count": len(asset_ids),
                 "added_asset_count": len(new_asset_ids),
+                "removed_asset_count": len(removed_asset_ids),
                 "add_result": add_result,
+                "remove_result": remove_result,
                 "updated": True,
             }
             upsert_album_mapping(
@@ -50,7 +67,7 @@ class AlbumManager:
                 bucket,
                 album_id,
                 name,
-                [*mapping.get("asset_ids", []), *new_asset_ids],
+                asset_ids,
             )
             return result
 

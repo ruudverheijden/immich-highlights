@@ -31,6 +31,7 @@ class FakeSession:
         self.posts = []
         self.gets = []
         self.puts = []
+        self.deletes = []
 
     def post(self, url, json=None, timeout=None):
         self.posts.append({"url": url, "json": json, "timeout": timeout})
@@ -45,6 +46,10 @@ class FakeSession:
 
     def put(self, url, json=None, timeout=None):
         self.puts.append({"url": url, "json": json, "timeout": timeout})
+        return FakeResponse(self.responses.pop(0))
+
+    def delete(self, url, json=None, timeout=None):
+        self.deletes.append({"url": url, "json": json, "timeout": timeout})
         return FakeResponse(self.responses.pop(0))
 
 
@@ -64,6 +69,29 @@ def test_list_assets_uses_metadata_search_endpoint():
         "size": 25,
         "type": "IMAGE",
         "withExif": True,
+    }
+
+
+def test_list_assets_can_filter_by_taken_date_range():
+    """Album rules should narrow candidates before scoring starts."""
+    client = ImmichClient("http://immich.local", dry_run=True)
+    client.session = FakeSession([{"assets": {"items": [], "nextPage": None}}])
+
+    assets = client.list_assets(
+        page=1,
+        per_page=50,
+        taken_after="2026-06-01T00:00:00+00:00",
+        taken_before="2026-06-25T00:00:00+00:00",
+    )
+
+    assert assets == []
+    assert client.session.posts[0]["json"] == {
+        "page": 1,
+        "size": 50,
+        "type": "IMAGE",
+        "withExif": True,
+        "takenAfter": "2026-06-01T00:00:00+00:00",
+        "takenBefore": "2026-06-25T00:00:00+00:00",
     }
 
 
@@ -205,3 +233,18 @@ def test_add_assets_to_album_explains_missing_permission():
         assert "albumAsset.create" in str(e)
     else:
         raise AssertionError("Expected PermissionError")
+
+
+def test_remove_assets_from_album_uses_bulk_ids_field():
+    """Generated albums should be synced by removing stale assets."""
+    client = ImmichClient("http://immich.local", dry_run=False)
+    client.session = FakeSession([{"removed": 1}])
+
+    result = client.remove_assets_from_album("album-1", ["asset-1"])
+
+    assert result == {"removed": 1}
+    assert client.session.deletes[0] == {
+        "url": "http://immich.local/api/albums/album-1/assets",
+        "json": {"ids": ["asset-1"]},
+        "timeout": 10,
+    }
