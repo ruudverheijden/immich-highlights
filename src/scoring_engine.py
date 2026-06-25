@@ -22,8 +22,13 @@ def score_dimensions(width: int, height: int) -> int:
 def score_faces(face_count: int) -> int:
     """Reward photos with at least one detected face."""
     if face_count > 0:
-        return 15
+        return 5
     return 0
+
+
+def score_face_quality(face_quality: int) -> int:
+    """Reward the best detected face without letting it dominate the score."""
+    return max(0, min(25, int(face_quality)))
 
 
 def score_rating(rating) -> int:
@@ -86,24 +91,41 @@ def clamp_score(score: int) -> int:
     return max(0, min(100, int(score)))
 
 
+def calculate_score_details(details: dict) -> dict:
+    """Return scoring inputs, score components, and final score."""
+    width, height = details["dimensions"]
+    inputs = details.copy()
+    # Raw EXIF is stored separately in exif_json; keep score details focused on
+    # normalized scoring inputs and component results.
+    inputs.pop("exif", None)
+    components = {
+        "base": 50,
+        "blur": score_blur(details["blur_variance"]),
+        "dimensions": score_dimensions(width, height),
+        "faces": score_faces(details["face_count"]),
+        "face_quality": score_face_quality(details["face_quality"]),
+        "rating": score_rating(details["rating"]),
+        "exif_quality": score_exif_quality(
+            details["iso"],
+            details["exposure_seconds"],
+        ),
+        "location": score_location(details["has_location"]),
+        "user_flags": score_user_flags(details["is_favorite"], details["is_edited"]),
+        "contrast": score_contrast(details["hist_std"]) if "hist_std" in details else 0,
+        "brightness": (
+            score_brightness(details["brightness"]) if "brightness" in details else 0
+        ),
+    }
+    raw_score = sum(components.values())
+    final_score = clamp_score(raw_score)
+    return {
+        "score": final_score,
+        "raw_score": raw_score,
+        "components": components,
+        "inputs": inputs,
+    }
+
+
 def calculate_score(details: dict) -> int:
     """Combine individual scoring rules into one 0-100 asset score."""
-    score = 50
-    score += score_blur(details["blur_variance"])
-
-    width, height = details["dimensions"]
-    score += score_dimensions(width, height)
-
-    score += score_faces(details["face_count"])
-    score += score_rating(details["rating"])
-    score += score_exif_quality(details["iso"], details["exposure_seconds"])
-    score += score_location(details["has_location"])
-    score += score_user_flags(details["is_favorite"], details["is_edited"])
-
-    if "hist_std" in details:
-        score += score_contrast(details["hist_std"])
-
-    if "brightness" in details:
-        score += score_brightness(details["brightness"])
-
-    return clamp_score(score)
+    return calculate_score_details(details)["score"]

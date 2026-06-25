@@ -1,6 +1,7 @@
 from src.scoring_engine import (
     score_blur,
     score_dimensions,
+    score_face_quality,
     score_faces,
     score_rating,
     score_exif_quality,
@@ -10,6 +11,7 @@ from src.scoring_engine import (
     score_contrast,
     clamp_score,
     calculate_score,
+    calculate_score_details,
 )
 
 
@@ -32,7 +34,10 @@ def test_exposure_parsing_and_quality_penalty():
 def test_face_scoring_helper():
     """Face helper exposes a simple domain scoring rule."""
     assert score_faces(0) == 0
-    assert score_faces(2) == 15
+    assert score_faces(2) == 5
+    assert score_face_quality(0) == 0
+    assert score_face_quality(20) == 20
+    assert score_face_quality(40) == 25
 
 
 def test_location_and_user_flag_scoring_helpers():
@@ -60,6 +65,7 @@ def test_calculate_score_combines_scoring_inputs():
         "blur_variance": 250,
         "dimensions": (4000, 3000),
         "face_count": 1,
+        "face_quality": 25,
         "rating": 5,
         "iso": 200,
         "exposure_seconds": None,
@@ -71,3 +77,33 @@ def test_calculate_score_combines_scoring_inputs():
     }
 
     assert calculate_score(details) == 100
+
+
+def test_calculate_score_details_keeps_inputs_and_components():
+    """Score details should make later tuning and recalculation possible."""
+    details = {
+        "blur_variance": 10,
+        "dimensions": (320, 240),
+        "face_count": 0,
+        "face_quality": 0,
+        "rating": 3,
+        "iso": 6400,
+        "exposure_seconds": 1 / 15,
+        "has_location": False,
+        "is_favorite": False,
+        "is_edited": False,
+        "hist_std": 20,
+        "brightness": 20,
+        "exif": {"iso": 6400},
+    }
+
+    score_details = calculate_score_details(details)
+
+    assert score_details["score"] == 0
+    assert score_details["raw_score"] == -10
+    assert score_details["components"]["blur"] == -20
+    assert score_details["components"]["brightness"] == -10
+    assert score_details["inputs"]["blur_variance"] == 10
+    assert score_details["inputs"]["face_count"] == 0
+    assert "exif" not in score_details["inputs"]
+    assert score_details["inputs"]["iso"] == 6400

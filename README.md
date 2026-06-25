@@ -59,8 +59,8 @@ Configure the service by copying `.env.example` to `.env` and editing the values
 
 - `SCORER_DB_PATH`
   Path to the SQLite database used to remember processed assets, scores, EXIF
-  data, face counts, blur values, and ratings. Must not be empty. Default:
-  `./db/scorer.db`.
+  data, ratings, and detailed scoring JSON for later inspection or tuning. Must
+  not be empty. Default: `./db/scorer.db`.
 
 - `SCORER_SCAN_INTERVAL_HOURS`
   Intended interval for scheduled/background runs. The current one-shot command

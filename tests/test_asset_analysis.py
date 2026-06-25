@@ -4,8 +4,10 @@ from src.asset_analysis import (
     score_asset,
     collect_image_details,
     compute_brightness,
+    compute_best_face_quality,
     compute_blur_variance,
     compute_contrast_stddev,
+    compute_face_quality,
     compute_phash,
     detect_faces,
     get_exif_exposure_seconds,
@@ -16,6 +18,10 @@ from src.asset_analysis import (
     is_favorite,
     normalize_rating,
     parse_exposure_seconds,
+    score_face_brightness,
+    score_face_center,
+    score_face_sharpness,
+    score_face_size,
 )
 
 
@@ -67,7 +73,7 @@ def test_phash_and_no_faces():
     ph = compute_phash(img)
     assert isinstance(ph, str)
     faces = detect_faces(img)
-    assert faces == 0
+    assert faces == []
 
 
 def test_score_small_vs_regular():
@@ -155,6 +161,32 @@ def test_brightness_reads_image_luminance():
     assert compute_brightness(bright) == 240
 
 
+def test_face_quality_helpers_score_good_face_inputs():
+    """Face quality combines size, center, sharpness, and brightness signals."""
+    img = make_checkerboard(400, 10)
+    face = {"x": 100, "y": 100, "width": 200, "height": 200}
+
+    assert score_face_size(face, img.size) == 8
+    assert score_face_center(face, img.size) == 6
+    assert score_face_sharpness(img.crop((100, 100, 300, 300))) == 6
+    assert score_face_brightness(Image.new("RGB", (50, 50), color=(120, 120, 120))) == 5
+    assert compute_face_quality(img, face) == 25
+    assert compute_best_face_quality(img, [face]) == 25
+
+
+def test_face_quality_helpers_penalize_weak_face_inputs():
+    """Tiny, off-center, flat, or dark face crops should not get a quality boost."""
+    img = Image.new("RGB", (400, 400), color=(10, 10, 10))
+    face = {"x": 0, "y": 0, "width": 40, "height": 40}
+
+    assert score_face_size(face, img.size) == 0
+    assert score_face_center(face, img.size) == 0
+    assert score_face_sharpness(img.crop((0, 0, 40, 40))) == 0
+    assert score_face_brightness(img.crop((0, 0, 40, 40))) == 0
+    assert compute_face_quality(img, face) == 0
+    assert compute_best_face_quality(img, []) == 0
+
+
 def test_collect_image_details_returns_scoring_inputs():
     """Detail collection should gather all inputs used by calculate_score."""
     img = Image.new("RGB", (800, 600), color=(120, 120, 120))
@@ -175,6 +207,8 @@ def test_collect_image_details_returns_scoring_inputs():
     assert details["dimensions"] == (800, 600)
     assert "blur_variance" in details
     assert "face_count" in details
+    assert "face_quality" in details
+    assert "faces" in details
     assert details["exif"]["rating"] == "4"
     assert details["rating"] == 4
     assert details["iso"] == 200

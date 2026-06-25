@@ -6,9 +6,9 @@ import numpy as np
 import os
 
 try:
-    from .scoring_engine import calculate_score
+    from .scoring_engine import calculate_score_details
 except ImportError:
-    from scoring_engine import calculate_score
+    from scoring_engine import calculate_score_details
 
 
 def compute_blur_variance(pil_image: Image.Image) -> float:
@@ -19,8 +19,8 @@ def compute_blur_variance(pil_image: Image.Image) -> float:
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
-def detect_faces(pil_image: Image.Image) -> int:
-    """Return a best-effort count of frontal faces in the image."""
+def detect_faces(pil_image: Image.Image) -> list[dict]:
+    """Return best-effort frontal face boxes in image coordinates."""
     arr = np.array(pil_image.convert("RGB"))
     gray = cv2.cvtColor(arr, cv2.COLOR_RGB2GRAY)
     cascade_path = os.path.join(
@@ -31,7 +31,15 @@ def detect_faces(pil_image: Image.Image) -> int:
     faces = face_cascade.detectMultiScale(
         gray, scaleFactor=1.1, minNeighbors=5, minSize=(30, 30)
     )
-    return int(len(faces))
+    return [
+        {
+            "x": int(x),
+            "y": int(y),
+            "width": int(width),
+            "height": int(height),
+        }
+        for x, y, width, height in faces
+    ]
 
 
 def compute_phash(pil_image: Image.Image) -> str:
@@ -110,6 +118,84 @@ def compute_brightness(pil_image: Image.Image) -> float:
     return float(stat.mean[0])
 
 
+def crop_face(pil_image: Image.Image, face: dict) -> Image.Image:
+    """Crop a detected face box from the image."""
+    x = face["x"]
+    y = face["y"]
+    return pil_image.crop((x, y, x + face["width"], y + face["height"]))
+
+
+def score_face_size(face: dict, image_size: tuple[int, int]) -> int:
+    """Score whether a face is large enough to matter in a highlight photo."""
+    image_width, image_height = image_size
+    face_area = face["width"] * face["height"]
+    image_area = image_width * image_height
+    if image_area <= 0:
+        return 0
+    area_ratio = face_area / image_area
+    if area_ratio >= 0.08:
+        return 8
+    if area_ratio >= 0.04:
+        return 4
+    return 0
+
+
+def score_face_center(face: dict, image_size: tuple[int, int]) -> int:
+    """Score whether a face is near the visual center of the image."""
+    image_width, image_height = image_size
+    if image_width <= 0 or image_height <= 0:
+        return 0
+
+    face_center_x = face["x"] + face["width"] / 2
+    face_center_y = face["y"] + face["height"] / 2
+    normalized_x = abs(face_center_x / image_width - 0.5)
+    normalized_y = abs(face_center_y / image_height - 0.5)
+
+    if normalized_x <= 0.25 and normalized_y <= 0.25:
+        return 6
+    if normalized_x <= 0.35 and normalized_y <= 0.35:
+        return 3
+    return 0
+
+
+def score_face_sharpness(face_image: Image.Image) -> int:
+    """Score whether the face crop itself is sharp enough."""
+    blur = compute_blur_variance(face_image)
+    if blur > 150:
+        return 6
+    if blur >= 75:
+        return 3
+    return 0
+
+
+def score_face_brightness(face_image: Image.Image) -> int:
+    """Score whether the face crop is in a useful brightness range."""
+    brightness = compute_brightness(face_image)
+    if 60 <= brightness <= 190:
+        return 5
+    if 40 <= brightness <= 220:
+        return 2
+    return 0
+
+
+def compute_face_quality(pil_image: Image.Image, face: dict) -> int:
+    """Score one detected face from size, position, sharpness, and brightness."""
+    face_image = crop_face(pil_image, face)
+    return (
+        score_face_size(face, pil_image.size)
+        + score_face_center(face, pil_image.size)
+        + score_face_sharpness(face_image)
+        + score_face_brightness(face_image)
+    )
+
+
+def compute_best_face_quality(pil_image: Image.Image, faces: list[dict]) -> int:
+    """Return the strongest face quality score found in an image."""
+    if not faces:
+        return 0
+    return max(compute_face_quality(pil_image, face) for face in faces)
+
+
 def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
     """Collect image and metadata signals used by the scoring rules."""
     details = {}
@@ -122,11 +208,15 @@ def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
     details["dimensions"] = pil_image.size
 
     try:
-        details["face_count"] = detect_faces(pil_image)
+        details["faces"] = detect_faces(pil_image)
+        details["face_count"] = len(details["faces"])
+        details["face_quality"] = compute_best_face_quality(pil_image, details["faces"])
     except Exception:
         # Face detection is helpful but optional; OpenCV data issues should not
         # drop an otherwise valid image from the scorer.
+        details["faces"] = []
         details["face_count"] = 0
+        details["face_quality"] = 0
 
     details["exif"] = get_asset_exif(asset_meta)
     details["rating"] = normalize_rating(details["exif"].get("rating"))
@@ -152,5 +242,7 @@ def collect_image_details(asset_meta: dict, pil_image: Image.Image) -> dict:
 def score_asset(asset_meta: dict, pil_image: Image.Image) -> dict:
     """Analyze an asset and attach its final highlight score."""
     details = collect_image_details(asset_meta, pil_image)
-    details["score"] = calculate_score(details)
+    score_details = calculate_score_details(details)
+    details["score"] = score_details["score"]
+    details["score_details"] = score_details
     return details
