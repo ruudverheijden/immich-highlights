@@ -31,6 +31,20 @@ Docker (build & run):
 docker compose up --build -d
 ```
 
+Development review export:
+
+```bash
+python src/export_review.py
+```
+
+This writes `review/index.html` from the local SQLite database. It is a
+development-only report for comparing scores with your own judgement and is not
+used by the Docker service. Labels you enter in the report are stored only in
+your browser's local storage. The export downloads thumbnails to
+`review/thumbnails/` using `IMMICH_API_KEY`, so the report does not depend on
+browser authentication or remote thumbnail URLs. Use `--no-download-thumbnails`
+if you prefer direct Immich thumbnail URLs.
+
 TODO
 ----
 - Extend scoring, deduplication, and scheduling in follow-up iterations.

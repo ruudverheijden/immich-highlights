@@ -147,6 +147,14 @@ def test_metadata_normalization_helpers_support_current_immich_shapes():
     assert is_edited({"isEdited": True})
 
 
+def test_has_location_supports_immich_latitude_longitude_fields():
+    """Immich may expose GPS as flat latitude/longitude values in exifInfo."""
+    assert has_location({"latitude": 52.1, "longitude": 5.1})
+    assert has_location({"GPSLatitude": 0.0, "GPSLongitude": 0.0})
+    assert has_location({"lat": 52.1, "lon": 5.1})
+    assert not has_location({"latitude": 52.1})
+
+
 def test_contrast_stddev_reads_image_signal():
     """Contrast calculation belongs with image analysis rather than score policy."""
     flat = Image.new("RGB", (100, 100), color=(128, 128, 128))

@@ -91,9 +91,28 @@ def get_exif_exposure_seconds(exif: dict):
     return parse_exposure_seconds(exposure)
 
 
+def first_present(mapping: dict, keys: tuple[str, ...]):
+    """Return the first present value, preserving valid falsey values like 0.0."""
+    for key in keys:
+        if key in mapping:
+            return mapping[key]
+    return None
+
+
 def has_location(exif: dict) -> bool:
     """Return True when EXIF contains GPS metadata."""
-    return bool(exif.get("GPSInfo") or exif.get("gps"))
+    if exif.get("GPSInfo") or exif.get("gps"):
+        return True
+
+    latitude = first_present(
+        exif,
+        ("latitude", "Latitude", "GPSLatitude", "gpsLatitude", "lat"),
+    )
+    longitude = first_present(
+        exif,
+        ("longitude", "Longitude", "GPSLongitude", "gpsLongitude", "lng", "lon"),
+    )
+    return latitude is not None and longitude is not None
 
 
 def is_favorite(asset_meta: dict) -> bool:
