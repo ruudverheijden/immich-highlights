@@ -1,8 +1,13 @@
 from src.db import init_db, upsert_processed_asset
+from src.db import upsert_album_mapping
 from src.export_review import (
+    attach_album_memberships,
     download_thumbnail,
+    first_photo_datetime,
+    format_datetime,
     immich_asset_url,
     immich_thumbnail_url,
+    load_album_memberships,
     load_processed_assets,
     PLACEHOLDER_THUMBNAIL,
     write_review_html,
@@ -79,7 +84,7 @@ def test_write_review_html_exports_scoring_details(tmp_path):
         "asset-1",
         "checksum",
         87,
-        {"iso": 100},
+        {"iso": 100, "localDateTime": "2026-06-24T19:15:30.000Z"},
         5,
         {
             "score": 87,
@@ -91,6 +96,13 @@ def test_write_review_html_exports_scoring_details(tmp_path):
                 "faces": [{"x": 40, "y": 50, "width": 80, "height": 90}],
             },
         },
+    )
+    upsert_album_mapping(
+        conn,
+        "last-week",
+        "album-1",
+        "Highlights: Last Week",
+        ["asset-1"],
     )
     conn.close()
 
@@ -107,12 +119,28 @@ def test_write_review_html_exports_scoring_details(tmp_path):
     assert "http://immich.local/api/assets/asset-1/thumbnail?size=preview" in html
     assert 'class="thumbnail"' in html
     assert "asset-1" in html
+    assert 'class="asset-datetime"' in html
+    assert "2026-06-24 19:15" in html
+    assert "Notes" not in html
+    assert 'data-field="notes"' not in html
     assert "rating" in html
     assert "blur_variance" in html
     assert 'id="toggle-faces"' in html
+    assert 'id="toggle-components"' in html
+    assert 'id="toggle-inputs"' in html
+    assert '<details class="score-components">' in html
+    assert '<details class="score-components" open>' not in html
+    assert '<details class="scoring-inputs">' in html
+    assert '<details class="scoring-inputs" open>' not in html
+    assert "show-score-components" in html
+    assert "show-scoring-inputs" in html
     assert 'class="face-overlay"' in html
     assert "data-faces=" in html
     assert "data-dimensions=" in html
+    assert 'id="album-filter"' in html
+    assert "Highlights: Last Week" in html
+    assert "data-albums=" in html
+    assert "&quot;last-week&quot;" in html
     assert "localStorage" in html
 
 
@@ -150,3 +178,68 @@ def test_load_processed_assets_sorts_by_score(tmp_path):
     assets = load_processed_assets(str(db_path))
 
     assert [asset["asset_id"] for asset in assets] == ["high", "low"]
+
+
+def test_photo_datetime_helpers_prefer_exif_and_format_iso_values():
+    """Review cards should display photo datetime instead of asset ids."""
+    assert format_datetime("2026-06-24T19:15:30.000Z") == "2026-06-24 19:15"
+    assert (
+        first_photo_datetime(
+            {"localDateTime": "2026-06-24T19:15:30.000Z"},
+            fallback="2026-06-25 10:00:00",
+        )
+        == "2026-06-24 19:15"
+    )
+    assert first_photo_datetime({}, fallback="2026-06-25 10:00:00") == (
+        "2026-06-25 10:00"
+    )
+
+
+def test_load_album_memberships_indexes_assets_by_generated_album(tmp_path):
+    """The review export should know which generated albums contain each asset."""
+    db_path = tmp_path / "scorer.db"
+    conn = init_db(str(db_path))
+    upsert_album_mapping(
+        conn,
+        "last-week",
+        "album-1",
+        "Highlights: Last Week",
+        ["a1", "a2"],
+    )
+    upsert_album_mapping(
+        conn,
+        "last-month",
+        "album-2",
+        "Highlights: Last Month",
+        ["a2"],
+    )
+    conn.close()
+
+    albums, memberships = load_album_memberships(str(db_path))
+
+    assert [album["bucket"] for album in albums] == ["last-month", "last-week"]
+    assert memberships["a1"] == [
+        {"name": "Highlights: Last Week", "bucket": "last-week"}
+    ]
+    assert memberships["a2"] == [
+        {"name": "Highlights: Last Month", "bucket": "last-month"},
+        {"name": "Highlights: Last Week", "bucket": "last-week"},
+    ]
+
+
+def test_attach_album_memberships_marks_assets_without_albums():
+    """Assets outside generated albums should still be filterable in the report."""
+    assets = [{"asset_id": "a1"}, {"asset_id": "a2"}]
+
+    attach_album_memberships(
+        assets,
+        {"a1": [{"name": "Highlights: Last Week", "bucket": "last-week"}]},
+    )
+
+    assert assets == [
+        {
+            "asset_id": "a1",
+            "albums": [{"name": "Highlights: Last Week", "bucket": "last-week"}],
+        },
+        {"asset_id": "a2", "albums": []},
+    ]

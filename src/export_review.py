@@ -1,4 +1,5 @@
 import argparse
+from datetime import datetime
 import html
 import json
 import os
@@ -105,12 +106,43 @@ def parse_json(value, fallback):
         return fallback
 
 
+PHOTO_DATETIME_KEYS = (
+    "localDateTime",
+    "dateTimeOriginal",
+    "DateTimeOriginal",
+    "dateTime",
+    "DateTime",
+    "fileCreatedAt",
+    "createdAt",
+)
+
+
+def first_photo_datetime(exif: dict, fallback: str | None = None) -> str:
+    """Return the best available photo datetime for the review card."""
+    for key in PHOTO_DATETIME_KEYS:
+        value = exif.get(key)
+        if value:
+            return format_datetime(value)
+    return format_datetime(fallback) if fallback else "Unknown datetime"
+
+
+def format_datetime(value) -> str:
+    """Format common ISO datetime values while leaving EXIF strings readable."""
+    text = str(value)
+    try:
+        normalized = text.replace("Z", "+00:00")
+        parsed = datetime.fromisoformat(normalized)
+    except ValueError:
+        return text
+    return parsed.strftime("%Y-%m-%d %H:%M")
+
+
 def load_processed_assets(db_path: str, limit: int | None = None) -> list[dict]:
     """Read scored assets from the database in descending score order."""
     conn = sqlite3.connect(db_path)
     cur = conn.cursor()
     sql = (
-        "SELECT asset_id, score, rating, score_details_json, processed_at "
+        "SELECT asset_id, score, rating, score_details_json, processed_at, exif_json "
         "FROM processed_assets ORDER BY score DESC, processed_at DESC"
     )
     params = ()
@@ -120,16 +152,56 @@ def load_processed_assets(db_path: str, limit: int | None = None) -> list[dict]:
     cur.execute(sql, params)
     rows = cur.fetchall()
     conn.close()
-    return [
-        {
-            "asset_id": row[0],
-            "score": row[1],
-            "rating": row[2],
-            "score_details": parse_json(row[3], {}),
-            "processed_at": row[4],
+    assets = []
+    for row in rows:
+        exif = parse_json(row[5], {})
+        assets.append(
+            {
+                "asset_id": row[0],
+                "score": row[1],
+                "rating": row[2],
+                "score_details": parse_json(row[3], {}),
+                "processed_at": row[4],
+                "photo_datetime": first_photo_datetime(exif, fallback=row[4]),
+            }
+        )
+    return assets
+
+
+def load_album_memberships(db_path: str) -> tuple[list[dict], dict[str, list[dict]]]:
+    """Read generated album mappings and index them by asset id."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT album_name, bucket, asset_ids_json "
+        "FROM album_mappings ORDER BY album_name"
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    albums = []
+    by_asset_id = {}
+    for album_name, bucket, asset_ids_json in rows:
+        asset_ids = parse_json(asset_ids_json, [])
+        if not isinstance(asset_ids, list):
+            asset_ids = []
+        album = {
+            "name": album_name or bucket,
+            "bucket": bucket,
+            "asset_ids": asset_ids,
         }
-        for row in rows
-    ]
+        albums.append(album)
+        for asset_id in asset_ids:
+            by_asset_id.setdefault(asset_id, []).append(
+                {"name": album["name"], "bucket": bucket}
+            )
+    return albums, by_asset_id
+
+
+def attach_album_memberships(assets: list[dict], memberships: dict[str, list[dict]]):
+    """Annotate scored assets with generated album memberships."""
+    for asset in assets:
+        asset["albums"] = memberships.get(asset["asset_id"], [])
 
 
 def format_value(value) -> str:
@@ -164,6 +236,8 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
     inputs = score_details.get("inputs", {})
     faces_json = json.dumps(inputs.get("faces", []))
     dimensions_json = json.dumps(inputs.get("dimensions", []))
+    albums = asset.get("albums", [])
+    album_buckets_json = json.dumps([album["bucket"] for album in albums])
     link = immich_asset_url(immich_url, asset_id)
     thumbnail = asset.get("thumbnail_src") or immich_thumbnail_url(immich_url, asset_id)
     escaped_id = html.escape(asset_id)
@@ -171,12 +245,22 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
     escaped_thumbnail = html.escape(thumbnail, quote=True)
     escaped_faces = html.escape(faces_json, quote=True)
     escaped_dimensions = html.escape(dimensions_json, quote=True)
+    escaped_album_buckets = html.escape(album_buckets_json, quote=True)
+    album_badges = "".join(
+        f"<span>{html.escape(album['name'])}</span>" for album in albums
+    )
+    if not album_badges:
+        album_badges = "<span>Not in generated album</span>"
+    escaped_datetime = html.escape(
+        str(asset.get("photo_datetime") or "Unknown datetime")
+    )
     return f"""
     <article
       class="card"
       data-asset-id="{escaped_id}"
       data-faces="{escaped_faces}"
       data-dimensions="{escaped_dimensions}"
+      data-albums="{escaped_album_buckets}"
     >
       <a class="thumb-link" href="{escaped_link}" target="_blank" rel="noreferrer">
         <img
@@ -192,10 +276,13 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
           <a class="asset-link" href="{escaped_link}" target="_blank" rel="noreferrer">
             Open in Immich
           </a>
-          <div class="asset-id">{escaped_id}</div>
+          <div class="asset-datetime">{escaped_datetime}</div>
         </div>
         <div class="score">{html.escape(str(asset["score"]))}</div>
       </header>
+      <div class="album-badges">
+        {album_badges}
+      </div>
 
       <section class="labels">
         <label>
@@ -217,21 +304,13 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
             <option value="no">No</option>
           </select>
         </label>
-        <label class="notes">
-          Notes
-          <textarea
-            data-field="notes"
-            rows="2"
-            placeholder="Why does this match or miss?"
-          ></textarea>
-        </label>
       </section>
 
-      <details open>
+      <details class="score-components">
         <summary>Score components</summary>
         {render_score_items(components)}
       </details>
-      <details>
+      <details class="scoring-inputs">
         <summary>Scoring inputs</summary>
         {render_score_items(inputs)}
       </details>
@@ -239,9 +318,27 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
     """
 
 
-def render_review_html(assets: list[dict], immich_url: str) -> str:
+def render_album_filter_options(albums: list[dict]) -> str:
+    """Render album filter dropdown options."""
+    options = ['<option value="all">All scored assets</option>']
+    for album in albums:
+        options.append(
+            f'<option value="{html.escape(album["bucket"], quote=True)}">'
+            f'{html.escape(album["name"])}</option>'
+        )
+    options.append('<option value="none">Not in generated album</option>')
+    return "\n".join(options)
+
+
+def render_review_html(
+    assets: list[dict],
+    immich_url: str,
+    albums: list[dict] | None = None,
+) -> str:
     """Render a full static review page."""
+    albums = albums or []
     cards = "\n".join(render_asset_card(asset, immich_url) for asset in assets)
+    album_options = render_album_filter_options(albums)
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -283,6 +380,9 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
       padding: 16px;
       box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
     }}
+    .card.hidden {{
+      display: none;
+    }}
     .thumb-link {{
       display: block;
       position: relative;
@@ -319,6 +419,9 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
       align-items: center;
       margin-top: 16px;
     }}
+    .album-filter {{
+      min-width: 240px;
+    }}
     button {{
       border: 1px solid #cbd3df;
       border-radius: 6px;
@@ -343,7 +446,7 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
     .asset-link:hover {{
       text-decoration: underline;
     }}
-    .asset-id {{
+    .asset-datetime {{
       margin-top: 4px;
       color: #657187;
       font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
@@ -361,6 +464,20 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
       padding: 10px;
       text-align: center;
     }}
+    .album-badges {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 12px;
+    }}
+    .album-badges span {{
+      border-radius: 999px;
+      background: #e8edf5;
+      color: #3d485b;
+      font-size: 12px;
+      font-weight: 700;
+      padding: 4px 8px;
+    }}
     .labels {{
       display: grid;
       gap: 10px;
@@ -373,17 +490,13 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
       font-size: 13px;
       font-weight: 700;
     }}
-    select,
-    textarea {{
+    select {{
       box-sizing: border-box;
       width: 100%;
       border: 1px solid #cbd3df;
       border-radius: 6px;
       padding: 8px;
       font: inherit;
-    }}
-    textarea {{
-      resize: vertical;
     }}
     details {{
       border-top: 1px solid #edf0f5;
@@ -428,14 +541,17 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
         color: #10141c;
       }}
       .muted,
-      .asset-id,
+      .asset-datetime,
       label,
       .score-row span {{
         color: #a8b3c6;
       }}
+      .album-badges span {{
+        background: #252d3d;
+        color: #c8d2e4;
+      }}
       select,
-      button,
-      textarea {{
+      button {{
         background: #10141c;
         border-color: #3c4658;
         color: #edf2fb;
@@ -454,13 +570,21 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
   <main>
     <h1>Immich Highlights Review</h1>
     <p class="muted">
-      {len(assets)} scored assets. Labels are stored only in this browser's
+      <span id="visible-count">{len(assets)}</span> of {len(assets)} scored assets.
+      Labels are stored only in this browser's
       local storage. Use the Immich links to inspect photos, then compare your
       judgement with the score components.
     </p>
     <div class="toolbar">
+      <label class="album-filter">
+        Album
+        <select id="album-filter">
+          {album_options}
+        </select>
+      </label>
+      <button id="toggle-components" type="button">Show score components</button>
+      <button id="toggle-inputs" type="button">Show scoring inputs</button>
       <button id="toggle-faces" type="button">Show face boxes</button>
-      <span class="muted">Toggle recognized face boxes for all photos.</span>
     </div>
     <section class="grid">
       {cards}
@@ -469,7 +593,14 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
   <script>
     const prefix = "immich-highlights-review:";
     const faceToggleKey = prefix + "show-face-overlays";
+    const albumFilterKey = prefix + "album-filter";
+    const componentsToggleKey = prefix + "show-score-components";
+    const inputsToggleKey = prefix + "show-scoring-inputs";
     const faceButton = document.querySelector("#toggle-faces");
+    const componentsButton = document.querySelector("#toggle-components");
+    const inputsButton = document.querySelector("#toggle-inputs");
+    const albumFilter = document.querySelector("#album-filter");
+    const visibleCount = document.querySelector("#visible-count");
 
     function parseJsonAttribute(element, name, fallback) {{
       try {{
@@ -539,9 +670,74 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
       renderAllFaceBoxes();
     }}
 
+    function setDetailsVisibility(selector, button, show, shownText, hiddenText, key) {{
+      for (const details of document.querySelectorAll(selector)) {{
+        details.open = show;
+      }}
+      button.textContent = show ? shownText : hiddenText;
+      localStorage.setItem(key, show ? "true" : "false");
+    }}
+
+    function toggleDetails(selector, button, shownText, hiddenText, key) {{
+      const anyClosed = Array.from(
+        document.querySelectorAll(selector)
+      ).some((details) => !details.open);
+      setDetailsVisibility(selector, button, anyClosed, shownText, hiddenText, key);
+    }}
+
+    function cardMatchesAlbum(card, selectedAlbum) {{
+      if (selectedAlbum === "all") {{
+        return true;
+      }}
+
+      const albums = parseJsonAttribute(card, "albums", []);
+      if (selectedAlbum === "none") {{
+        return albums.length === 0;
+      }}
+      return albums.includes(selectedAlbum);
+    }}
+
+    function applyAlbumFilter() {{
+      const selectedAlbum = albumFilter.value || "all";
+      localStorage.setItem(albumFilterKey, selectedAlbum);
+      let count = 0;
+      for (const card of document.querySelectorAll(".card")) {{
+        const visible = cardMatchesAlbum(card, selectedAlbum);
+        card.classList.toggle("hidden", !visible);
+        if (visible) {{
+          count += 1;
+        }}
+      }}
+      visibleCount.textContent = String(count);
+      renderAllFaceBoxes();
+    }}
+
     faceButton.addEventListener("click", () => {{
       setFaceOverlayVisibility(!document.body.classList.contains("show-face-overlays"));
     }});
+    componentsButton.addEventListener("click", () => {{
+      toggleDetails(
+        ".score-components",
+        componentsButton,
+        "Hide score components",
+        "Show score components",
+        componentsToggleKey
+      );
+    }});
+    inputsButton.addEventListener("click", () => {{
+      toggleDetails(
+        ".scoring-inputs",
+        inputsButton,
+        "Hide scoring inputs",
+        "Show scoring inputs",
+        inputsToggleKey
+      );
+    }});
+    albumFilter.value = localStorage.getItem(albumFilterKey) || "all";
+    if (!albumFilter.value) {{
+      albumFilter.value = "all";
+    }}
+    albumFilter.addEventListener("change", applyAlbumFilter);
     window.addEventListener("resize", renderAllFaceBoxes);
 
     for (const card of document.querySelectorAll(".card")) {{
@@ -559,6 +755,23 @@ def render_review_html(assets: list[dict], immich_url: str) -> str:
       }}
     }}
     setFaceOverlayVisibility(localStorage.getItem(faceToggleKey) === "true");
+    setDetailsVisibility(
+      ".score-components",
+      componentsButton,
+      localStorage.getItem(componentsToggleKey) === "true",
+      "Hide score components",
+      "Show score components",
+      componentsToggleKey
+    );
+    setDetailsVisibility(
+      ".scoring-inputs",
+      inputsButton,
+      localStorage.getItem(inputsToggleKey) === "true",
+      "Hide scoring inputs",
+      "Show scoring inputs",
+      inputsToggleKey
+    );
+    applyAlbumFilter();
   </script>
 </body>
 </html>
@@ -575,6 +788,8 @@ def write_review_html(
 ) -> Path:
     """Write the review report and return the output path."""
     assets = load_processed_assets(db_path, limit=limit)
+    albums, memberships = load_album_memberships(db_path)
+    attach_album_memberships(assets, memberships)
     if download_thumbnails:
         attach_local_thumbnails(
             assets,
@@ -582,7 +797,7 @@ def write_review_html(
             api_key,
             output_path,
         )
-    html_text = render_review_html(assets, immich_url)
+    html_text = render_review_html(assets, immich_url, albums=albums)
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html_text, encoding="utf-8")

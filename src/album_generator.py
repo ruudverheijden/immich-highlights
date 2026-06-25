@@ -36,6 +36,15 @@ def get_asset_checksum(asset: dict, meta: dict) -> str | None:
     return meta.get("checksum") or asset.get("checksum")
 
 
+def get_asset_exif_for_storage(meta: dict) -> dict:
+    """Return EXIF plus useful asset-level datetime fields for review exports."""
+    exif = dict(get_asset_exif(meta) if isinstance(meta, dict) else {})
+    for key in ("localDateTime", "fileCreatedAt", "createdAt"):
+        if key in meta and key not in exif:
+            exif[key] = meta[key]
+    return exif
+
+
 def immich_asset_url(base_url: str, asset_id: str) -> str:
     """Build a browser URL for opening an asset in Immich."""
     return f"{base_url.rstrip('/')}/photos/{asset_id}"
@@ -72,7 +81,7 @@ def score_or_reuse_asset(client, conn, asset: dict, temp_dir: str, base_url: str
             details = score_asset(meta, pil, immich_faces=immich_faces)
 
         checksum = checksum or checksum_file(tmp_path)
-        exif_val = get_asset_exif(meta) if isinstance(meta, dict) else {}
+        exif_val = get_asset_exif_for_storage(meta)
         upsert_processed_asset(
             conn,
             asset_id,
