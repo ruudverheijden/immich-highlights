@@ -375,6 +375,8 @@ def collect_image_details(
     asset_meta: dict,
     pil_image: Image.Image,
     immich_faces: list[dict] | None = None,
+    content_filter_matches: list[dict] | None = None,
+    content_filter_penalty: int = 0,
 ) -> dict:
     """Collect image and metadata signals used by the scoring rules."""
     details = {}
@@ -403,6 +405,11 @@ def collect_image_details(
     details["has_location"] = has_location(details["exif"])
     details["is_favorite"] = is_favorite(asset_meta)
     details["is_edited"] = is_edited(asset_meta)
+    details["content_filter_matches"] = content_filter_matches or []
+    details["content_labels"] = [
+        match["label"] for match in details["content_filter_matches"]
+    ]
+    details["content_filter_penalty"] = content_filter_penalty
 
     try:
         details["hist_std"] = compute_contrast_stddev(pil_image)
@@ -426,9 +433,17 @@ def score_asset(
     asset_meta: dict,
     pil_image: Image.Image,
     immich_faces: list[dict] | None = None,
+    content_filter_matches: list[dict] | None = None,
+    content_filter_penalty: int = 0,
 ) -> dict:
     """Analyze an asset and attach its final highlight score."""
-    details = collect_image_details(asset_meta, pil_image, immich_faces=immich_faces)
+    details = collect_image_details(
+        asset_meta,
+        pil_image,
+        immich_faces=immich_faces,
+        content_filter_matches=content_filter_matches,
+        content_filter_penalty=content_filter_penalty,
+    )
     score_details = calculate_score_details(details)
     details["score"] = score_details["score"]
     details["score_details"] = score_details

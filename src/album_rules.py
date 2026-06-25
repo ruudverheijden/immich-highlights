@@ -24,6 +24,16 @@ class AlbumRule:
         return _as_utc(self.taken_before).isoformat()
 
 
+@dataclass(frozen=True)
+class ContentFilter:
+    """Describe one Immich smart-search label and scoring penalty."""
+
+    label: str
+    query: str
+    penalty: int
+    max_results: int
+
+
 def _as_utc(value: datetime) -> datetime:
     """Normalize naive and aware datetimes before serializing API filters."""
     if value.tzinfo is None:
@@ -66,34 +76,106 @@ def build_time_album_rules(
     ]
 
 
+def build_default_content_filters() -> list[ContentFilter]:
+    """Build default smart-search filters for non-highlight-like content."""
+    return [
+        ContentFilter(
+            label="screenshot",
+            query="screenshot",
+            penalty=-40,
+            max_results=25,
+        ),
+        ContentFilter(
+            label="document",
+            query="document receipt paper with text",
+            penalty=-25,
+            max_results=25,
+        ),
+        ContentFilter(
+            label="display",
+            query="computer screen phone screen monitor",
+            penalty=-20,
+            max_results=25,
+        ),
+    ]
+
+
+def load_album_config(
+    path: str,
+    now: datetime | None = None,
+    default_max_candidates: int = 100,
+) -> tuple[list[AlbumRule], list[ContentFilter]]:
+    """Load album rules and content filters from one TOML config file."""
+    config_path = Path(path)
+    if not config_path.exists():
+        return (
+            build_time_album_rules(
+                now=now,
+                max_candidates=default_max_candidates,
+            ),
+            build_default_content_filters(),
+        )
+
+    data = _load_toml(config_path)
+    return (
+        _load_album_rules_from_data(data, now, default_max_candidates),
+        _load_content_filters_from_data(data),
+    )
+
+
 def load_album_rules(
     path: str,
     now: datetime | None = None,
     default_max_candidates: int = 100,
 ) -> list[AlbumRule]:
     """Load rolling time-window album rules from a TOML config file."""
-    config_path = Path(path)
-    if not config_path.exists():
-        return build_time_album_rules(
-            now=now,
-            max_candidates=default_max_candidates,
-        )
+    return load_album_config(path, now, default_max_candidates)[0]
 
+
+def _load_toml(config_path: Path) -> dict:
+    """Read a TOML config file into a dictionary."""
     with config_path.open("rb") as f:
-        data = tomllib.load(f)
+        return tomllib.load(f)
 
+
+def _load_album_rules_from_data(
+    data: dict,
+    now: datetime | None,
+    default_max_candidates: int,
+) -> list[AlbumRule]:
+    """Load and validate album rules from parsed TOML data."""
     albums = data.get("albums")
     if not isinstance(albums, list):
         raise ValueError("Album config must contain an [[albums]] list")
 
-    rules = [
-        _album_rule_from_config(album, index, now, default_max_candidates)
-        for index, album in enumerate(albums, start=1)
-        if _enabled(album, index)
-    ]
+    rules = []
+    for index, album in enumerate(albums, start=1):
+        if not isinstance(album, dict):
+            raise ValueError(f"Album config entry #{index} must be a table")
+        if _enabled(album, index):
+            rules.append(
+                _album_rule_from_config(album, index, now, default_max_candidates)
+            )
     if not rules:
         raise ValueError("Album config must enable at least one album")
     return rules
+
+
+def _load_content_filters_from_data(data: dict) -> list[ContentFilter]:
+    """Load and validate smart-search content filters from parsed TOML data."""
+    filters = data.get("content_filters")
+    if filters is None:
+        return []
+    if not isinstance(filters, list):
+        raise ValueError("Album config content_filters must be a list")
+
+    content_filters = []
+    for index, content_filter in enumerate(filters, start=1):
+        if not isinstance(content_filter, dict):
+            raise ValueError(f"Content filter config entry #{index} must be a table")
+        if _enabled(content_filter, index, prefix="Content filter"):
+            content_filters.append(_content_filter_from_config(content_filter, index))
+    return content_filters
 
 
 def _album_rule_from_config(
@@ -127,21 +209,45 @@ def _album_rule_from_config(
     )
 
 
-def _required_string(album: dict, key: str, index: int) -> str:
+def _content_filter_from_config(content_filter: dict, index: int) -> ContentFilter:
+    """Validate one content filter entry and convert it into a ContentFilter."""
+    if not isinstance(content_filter, dict):
+        raise ValueError(f"Content filter config entry #{index} must be a table")
+
+    return ContentFilter(
+        label=_required_string(content_filter, "label", index, prefix="Content filter"),
+        query=_required_string(content_filter, "query", index, prefix="Content filter"),
+        penalty=_required_int(
+            content_filter, "penalty", index, prefix="Content filter"
+        ),
+        max_results=_optional_positive_int(
+            content_filter,
+            "max_results",
+            index,
+            100,
+            prefix="Content filter",
+        ),
+    )
+
+
+def _required_string(
+    album: dict,
+    key: str,
+    index: int,
+    prefix: str = "Album config entry",
+) -> str:
     """Read a required non-empty string from one album config entry."""
     value = album.get(key)
     if not isinstance(value, str) or not value.strip():
-        raise ValueError(f"Album config entry #{index} must set non-empty {key!r}")
+        raise ValueError(f"{prefix} #{index} must set non-empty {key!r}")
     return value.strip()
 
 
-def _enabled(album: dict, index: int) -> bool:
+def _enabled(album: dict, index: int, prefix: str = "Album config entry") -> bool:
     """Read the optional enabled flag without accepting string booleans."""
     value = album.get("enabled", True)
     if not isinstance(value, bool):
-        raise ValueError(
-            f"Album config entry #{index} field 'enabled' must be true or false"
-        )
+        raise ValueError(f"{prefix} #{index} field 'enabled' must be true or false")
     return value
 
 
@@ -152,17 +258,41 @@ def _required_positive_int(album: dict, key: str, index: int) -> int:
     return _positive_int(album[key], key, index)
 
 
-def _optional_positive_int(album: dict, key: str, index: int, default: int) -> int:
+def _required_int(
+    album: dict,
+    key: str,
+    index: int,
+    prefix: str = "Album config entry",
+) -> int:
+    """Read a required integer from one config entry."""
+    if key not in album:
+        raise ValueError(f"{prefix} #{index} must set {key!r}")
+    value = album[key]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(f"{prefix} #{index} field {key!r} must be an integer")
+    return value
+
+
+def _optional_positive_int(
+    album: dict,
+    key: str,
+    index: int,
+    default: int,
+    prefix: str = "Album config entry",
+) -> int:
     """Read an optional positive integer from one album config entry."""
     if key not in album:
         return default
-    return _positive_int(album[key], key, index)
+    return _positive_int(album[key], key, index, prefix=prefix)
 
 
-def _positive_int(value, key: str, index: int) -> int:
+def _positive_int(
+    value,
+    key: str,
+    index: int,
+    prefix: str = "Album config entry",
+) -> int:
     """Validate positive integer fields without accepting booleans."""
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
-        raise ValueError(
-            f"Album config entry #{index} field {key!r} must be a positive integer"
-        )
+        raise ValueError(f"{prefix} #{index} field {key!r} must be a positive integer")
     return value

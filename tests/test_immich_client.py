@@ -122,6 +122,43 @@ def test_iter_assets_follows_next_page_until_limit():
     assert [post["json"]["page"] for post in client.session.posts] == [1, 2]
 
 
+def test_iter_smart_search_assets_uses_query_and_taken_date_range():
+    """Content filters should use Immich smart search scoped to the album window."""
+    client = ImmichClient("http://immich.local", dry_run=True)
+    client.session = FakeSession(
+        [
+            {
+                "assets": {
+                    "items": [{"id": "asset-1"}],
+                    "nextPage": None,
+                }
+            }
+        ]
+    )
+
+    assets = list(
+        client.iter_smart_search_assets(
+            query="screenshot",
+            page_size=25,
+            max_assets=25,
+            taken_after="2026-06-01T00:00:00+00:00",
+            taken_before="2026-06-25T00:00:00+00:00",
+        )
+    )
+
+    assert assets == [{"id": "asset-1"}]
+    assert client.session.posts[0]["url"] == "http://immich.local/api/search/smart"
+    assert client.session.posts[0]["json"] == {
+        "query": "screenshot",
+        "page": 1,
+        "size": 25,
+        "type": "IMAGE",
+        "withExif": True,
+        "takenAfter": "2026-06-01T00:00:00+00:00",
+        "takenBefore": "2026-06-25T00:00:00+00:00",
+    }
+
+
 def test_download_asset_preview_uses_thumbnail_preview_endpoint(tmp_path):
     """Preview thumbnails avoid codec issues with original formats like HEIC."""
     client = ImmichClient("http://immich.local", dry_run=True)

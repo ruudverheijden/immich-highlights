@@ -15,7 +15,7 @@ from immich_client import ImmichClient
 from db import init_db
 from album_manager import AlbumManager
 from album_generator import generate_albums
-from album_rules import load_album_rules
+from album_rules import load_album_config
 
 
 logging.basicConfig(level=LOG_LEVEL)
@@ -60,10 +60,20 @@ def run_once():
         logger.warning("Permission verification failed: %s", e)
     alb_mgr = AlbumManager(client, conn)
 
-    rules = load_album_rules(
+    rules, content_filters = load_album_config(
         ALBUM_CONFIG_PATH,
         default_max_candidates=SCORER_MAX_ASSETS,
     )
+    logger.info(
+        "Loaded album config from %s: albums=%s, content_filters=%s",
+        ALBUM_CONFIG_PATH,
+        len(rules),
+        len(content_filters),
+    )
+    if not content_filters:
+        logger.info(
+            "No content filters configured; smart-search penalties will not be applied"
+        )
     try:
         generate_albums(
             client,
@@ -72,6 +82,7 @@ def run_once():
             rules,
             TEMP_DIR,
             IMMICH_API_URL,
+            content_filters=content_filters,
         )
     except requests.RequestException as e:
         logger.error(

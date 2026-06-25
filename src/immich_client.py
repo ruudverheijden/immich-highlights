@@ -77,6 +77,30 @@ class ImmichClient:
         resp.raise_for_status()
         return self._json(resp)
 
+    def smart_search_assets(
+        self,
+        query: str,
+        page: int = 1,
+        size: int = 1000,
+        taken_after: Optional[str] = None,
+        taken_before: Optional[str] = None,
+    ) -> dict:
+        """Search assets using Immich's contextual smart-search endpoint."""
+        payload = {
+            "query": query,
+            "page": page,
+            "size": min(size, 1000),
+            "type": "IMAGE",
+            "withExif": True,
+        }
+        if taken_after:
+            payload["takenAfter"] = taken_after
+        if taken_before:
+            payload["takenBefore"] = taken_before
+        resp = self.session.post(self._url("search/smart"), json=payload, timeout=10)
+        resp.raise_for_status()
+        return self._json(resp)
+
     def list_assets(
         self,
         page: int = 1,
@@ -128,6 +152,42 @@ class ImmichClient:
                 return
             # The OpenAPI schema describes nextPage as a token string, but in
             # practice it is the next numeric page for metadata search.
+            page = int(next_page)
+
+    def iter_smart_search_assets(
+        self,
+        query: str,
+        page_size: int = 1000,
+        max_assets: Optional[int] = None,
+        taken_after: Optional[str] = None,
+        taken_before: Optional[str] = None,
+    ) -> Iterator[dict]:
+        """Yield smart-search results page-by-page."""
+        page = 1
+        yielded = 0
+        while True:
+            remaining = None if max_assets is None else max_assets - yielded
+            if remaining is not None and remaining <= 0:
+                return
+
+            response = self.smart_search_assets(
+                query=query,
+                page=page,
+                size=min(page_size, remaining) if remaining else page_size,
+                taken_after=taken_after,
+                taken_before=taken_before,
+            )
+            asset_page = response.get("assets", {})
+            items = asset_page.get("items", [])
+            for asset in items:
+                yield asset
+                yielded += 1
+                if max_assets is not None and yielded >= max_assets:
+                    return
+
+            next_page = asset_page.get("nextPage")
+            if not next_page:
+                return
             page = int(next_page)
 
     def get_asset_metadata(self, asset_id: str) -> dict:

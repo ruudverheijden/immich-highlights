@@ -1,8 +1,13 @@
 from datetime import datetime, timezone
+from PIL import Image
 
-from src.album_generator import generate_album_for_rule, score_or_reuse_asset
-from src.album_rules import AlbumRule
-from src.db import init_db, upsert_processed_asset
+from src.album_generator import (
+    collect_content_filter_matches,
+    generate_album_for_rule,
+    score_or_reuse_asset,
+)
+from src.album_rules import AlbumRule, ContentFilter
+from src.db import get_processed_asset, init_db, upsert_processed_asset
 
 
 class FakeClient:
@@ -10,6 +15,7 @@ class FakeClient:
 
     def __init__(self):
         self.iter_calls = []
+        self.smart_calls = []
         self.metadata_calls = []
 
     def iter_assets(self, page_size, max_assets, taken_after=None, taken_before=None):
@@ -31,6 +37,34 @@ class FakeClient:
     def get_asset_metadata(self, asset_id):
         self.metadata_calls.append(asset_id)
         return {"id": asset_id, "checksum": f"checksum-{asset_id[-1]}"}
+
+    def iter_smart_search_assets(
+        self,
+        query,
+        page_size,
+        max_assets,
+        taken_after=None,
+        taken_before=None,
+    ):
+        self.smart_calls.append(
+            {
+                "query": query,
+                "page_size": page_size,
+                "max_assets": max_assets,
+                "taken_after": taken_after,
+                "taken_before": taken_before,
+            }
+        )
+        return iter([{"id": "a2"}])
+
+    def download_asset_preview(self, asset_id, dest_path):
+        Image.new("RGB", (800, 600), color=(120, 120, 120)).save(
+            dest_path, format="JPEG"
+        )
+        return dest_path
+
+    def get_asset_faces(self, asset_id):
+        return []
 
 
 class FakeAlbumManager:
@@ -114,3 +148,56 @@ def test_generate_album_for_rule_queries_immich_then_selects_top_cached_asset(tm
             "bucket": "last-week",
         }
     ]
+
+
+def test_collect_content_filter_matches_scopes_smart_search_to_rule_window():
+    """Configured content filters should label assets through Immich smart search."""
+    client = FakeClient()
+    filters = [
+        ContentFilter(
+            label="screenshot",
+            query="screenshot",
+            penalty=-40,
+            max_results=25,
+        )
+    ]
+
+    matches = collect_content_filter_matches(client, make_rule(), filters)
+
+    assert client.smart_calls == [
+        {
+            "query": "screenshot",
+            "page_size": 25,
+            "max_assets": 25,
+            "taken_after": "2026-06-18T00:00:00+00:00",
+            "taken_before": "2026-06-25T00:00:00+00:00",
+        }
+    ]
+    assert matches == {
+        "a2": [
+            {"label": "screenshot", "query": "screenshot", "penalty": -40, "rank": 1}
+        ]
+    }
+
+
+def test_score_or_reuse_asset_stores_content_filter_penalty(tmp_path):
+    """Smart-search labels should be visible in score details and affect score."""
+    conn = init_db(str(tmp_path / "test.db"))
+    client = FakeClient()
+
+    result = score_or_reuse_asset(
+        client,
+        conn,
+        {"id": "a2", "checksum": "checksum-2"},
+        str(tmp_path),
+        "http://immich.local",
+        content_filter_matches=[
+            {"label": "screenshot", "query": "screenshot", "penalty": -40, "rank": 1}
+        ],
+    )
+
+    row = get_processed_asset(conn, "a2")
+    assert result == ("a2", row["score"])
+    assert row["score_details"]["inputs"]["content_labels"] == ["screenshot"]
+    assert row["score_details"]["inputs"]["content_filter_penalty"] == -40
+    assert row["score_details"]["components"]["content_filter_penalty"] == -40

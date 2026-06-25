@@ -91,6 +91,11 @@ def score_portrait_quality(portrait_quality: int) -> int:
     return max(0, min(15, int(portrait_quality)))
 
 
+def score_content_filters(content_filter_penalty: int) -> int:
+    """Apply configured smart-search penalties for unwanted content types."""
+    return min(0, int(content_filter_penalty or 0))
+
+
 def clamp_score(score: int) -> int:
     """Keep downstream storage and comparisons predictable."""
     return max(0, min(100, int(score)))
@@ -121,6 +126,9 @@ def calculate_score_details(details: dict) -> dict:
             score_brightness(details["brightness"]) if "brightness" in details else 0
         ),
         "portrait_quality": score_portrait_quality(details.get("portrait_quality", 0)),
+        "content_filter_penalty": score_content_filters(
+            details.get("content_filter_penalty", 0)
+        ),
     }
     raw_score = sum(components.values())
     final_score = clamp_score(raw_score)

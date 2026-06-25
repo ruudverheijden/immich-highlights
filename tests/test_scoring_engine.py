@@ -9,6 +9,7 @@ from src.scoring_engine import (
     score_user_flags,
     score_brightness,
     score_contrast,
+    score_content_filters,
     score_portrait_quality,
     clamp_score,
     calculate_score,
@@ -58,6 +59,8 @@ def test_contrast_helpers_and_clamp_score():
     assert score_brightness(120) == 0
     assert score_portrait_quality(10) == 10
     assert score_portrait_quality(30) == 15
+    assert score_content_filters(-40) == -40
+    assert score_content_filters(5) == 0
     assert clamp_score(-10) == 0
     assert clamp_score(110) == 100
 
@@ -99,16 +102,23 @@ def test_calculate_score_details_keeps_inputs_and_components():
         "hist_std": 20,
         "brightness": 20,
         "exif": {"iso": 6400},
+        "content_labels": ["screenshot"],
+        "content_filter_matches": [
+            {"label": "screenshot", "query": "screenshot", "penalty": -40}
+        ],
+        "content_filter_penalty": -40,
     }
 
     score_details = calculate_score_details(details)
 
     assert score_details["score"] == 0
-    assert score_details["raw_score"] == -10
+    assert score_details["raw_score"] == -50
     assert score_details["components"]["blur"] == -20
     assert score_details["components"]["brightness"] == -10
     assert score_details["components"]["portrait_quality"] == 0
+    assert score_details["components"]["content_filter_penalty"] == -40
     assert score_details["inputs"]["blur_variance"] == 10
     assert score_details["inputs"]["face_count"] == 0
     assert "exif" not in score_details["inputs"]
     assert score_details["inputs"]["iso"] == 6400
+    assert score_details["inputs"]["content_labels"] == ["screenshot"]

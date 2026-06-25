@@ -228,6 +228,30 @@ def render_score_items(items: dict) -> str:
     return "\n".join(rows)
 
 
+def render_content_filter_badges(inputs: dict) -> str:
+    """Render compact badges for smart-search content filter matches."""
+    matches = inputs.get("content_filter_matches") or []
+    if not matches:
+        return ""
+    badges = []
+    for match in matches:
+        label = html.escape(str(match.get("label", "content-filter")))
+        penalty = html.escape(str(match.get("penalty", "")))
+        query = html.escape(str(match.get("query", "")))
+        rank = match.get("rank")
+        rank_text = f" rank {rank}" if rank else ""
+        title = f' title="Smart search: {query}{rank_text}"' if query else ""
+        penalty_text = f" {penalty}" if penalty else ""
+        visible_rank = f" #{rank}" if rank else ""
+        badges.append(f"<span{title}>{label}{visible_rank}{penalty_text}</span>")
+    return f"""
+      <div class="content-filters">
+        <strong>Content filters</strong>
+        <div>{''.join(badges)}</div>
+      </div>
+    """
+
+
 def render_asset_card(asset: dict, immich_url: str) -> str:
     """Render one scored asset review card."""
     asset_id = asset["asset_id"]
@@ -251,6 +275,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
     )
     if not album_badges:
         album_badges = "<span>Not in generated album</span>"
+    content_filter_badges = render_content_filter_badges(inputs)
     escaped_datetime = html.escape(
         str(asset.get("photo_datetime") or "Unknown datetime")
     )
@@ -283,6 +308,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
       <div class="album-badges">
         {album_badges}
       </div>
+      {content_filter_badges}
 
       <section class="labels">
         <label>
@@ -478,6 +504,25 @@ def render_review_html(
       font-weight: 700;
       padding: 4px 8px;
     }}
+    .content-filters {{
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+      color: #8a3b12;
+      font-size: 12px;
+      font-weight: 800;
+    }}
+    .content-filters div {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }}
+    .content-filters span {{
+      border-radius: 999px;
+      background: #fff1e5;
+      color: #8a3b12;
+      padding: 4px 8px;
+    }}
     .labels {{
       display: grid;
       gap: 10px;
@@ -549,6 +594,13 @@ def render_review_html(
       .album-badges span {{
         background: #252d3d;
         color: #c8d2e4;
+      }}
+      .content-filters {{
+        color: #ffb07c;
+      }}
+      .content-filters span {{
+        background: #3a281d;
+        color: #ffb07c;
       }}
       select,
       button {{

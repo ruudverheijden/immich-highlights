@@ -91,6 +91,16 @@ def test_write_review_html_exports_scoring_details(tmp_path):
             "components": {"rating": 30, "blur": 10},
             "inputs": {
                 "blur_variance": 250,
+                "content_filter_matches": [
+                    {
+                        "label": "screenshot",
+                        "query": "screenshot",
+                        "penalty": -40,
+                        "rank": 1,
+                    }
+                ],
+                "content_filter_penalty": -40,
+                "content_labels": ["screenshot"],
                 "dimensions": [400, 300],
                 "face_count": 1,
                 "faces": [{"x": 40, "y": 50, "width": 80, "height": 90}],
@@ -125,6 +135,9 @@ def test_write_review_html_exports_scoring_details(tmp_path):
     assert 'data-field="notes"' not in html
     assert "rating" in html
     assert "blur_variance" in html
+    assert "Content filters" in html
+    assert "screenshot #1 -40" in html
+    assert 'title="Smart search: screenshot rank 1"' in html
     assert 'id="toggle-faces"' in html
     assert 'id="toggle-components"' in html
     assert 'id="toggle-inputs"' in html

@@ -26,3 +26,55 @@ window_days = 365
 limit = 15
 max_candidates = 100
 enabled = true
+
+# Optional smart-search filters for content that should be penalized.
+# These run inside the same time window as each album rule.
+
+[[content_filters]]
+label = "screenshot"
+query = "screenshot"
+penalty = -40
+max_results = 25
+enabled = true
+
+[[content_filters]]
+label = "paperwork"
+query = "document paperwork form letter contract"
+penalty = -25
+max_results = 25
+enabled = true
+
+[[content_filters]]
+label = "whiteboard"
+query = "whiteboard presentation slide notes"
+penalty = -15
+max_results = 15
+enabled = true
+
+[[content_filters]]
+label = "receipt"
+query = "receipt invoice bill payment slip"
+penalty = -30
+max_results = 25
+enabled = true
+
+[[content_filters]]
+label = "product-photo"
+query = "product packaging label barcode"
+penalty = -20
+max_results = 20
+enabled = true
+
+[[content_filters]]
+label = "food-menu"
+query = "restaurant menu food menu menu card"
+penalty = -20
+max_results = 20
+enabled = true
+
+[[content_filters]]
+label = "shopping"
+query = "store shelf price tag shopping product display"
+penalty = -15
+max_results = 20
+enabled = true

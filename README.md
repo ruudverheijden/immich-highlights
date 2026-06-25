@@ -67,6 +67,13 @@ window_days = 7
 limit = 15
 max_candidates = 100
 enabled = true
+
+[[content_filters]]
+label = "screenshot"
+query = "screenshot"
+penalty = -40
+max_results = 25
+enabled = true
 ```
 
 Each `[[albums]]` entry creates one rolling time-window album:
@@ -77,6 +84,57 @@ Each `[[albums]]` entry creates one rolling time-window album:
 - `limit`: maximum number of top-scoring photos to put in the album
 - `max_candidates`: maximum number of Immich search results to score for this album
 - `enabled`: set to `false` to keep the config entry but skip the album
+
+Each `[[content_filters]]` entry runs an Immich smart search inside the same
+time window as each album. Assets found by those searches get labels in
+`score_details_json` and receive the configured score penalty:
+
+- `label`: label stored in scoring details, such as `screenshot`
+- `query`: Immich smart-search query to run
+- `penalty`: score adjustment for matching assets, usually negative
+- `max_results`: maximum ranked smart-search results to fetch per album window.
+  Immich does not expose a similarity score here, so lower values keep labels
+  limited to the strongest results.
+- `enabled`: set to `false` to keep the config entry but skip the filter
+
+Smart-search queries are semantic, not strict keyword filters. A query with
+multiple words is treated as one natural-language phrase. It is not an `AND`
+search where every word must be present, and it is not a plain `OR` search
+where any single word is enough. Immich ranks photos by how similar they are to
+the whole query.
+
+For predictable filters, keep queries short and specific. Prefer separate
+filters when you want separate concepts:
+
+```toml
+[[content_filters]]
+label = "computer-screen"
+query = "computer screen"
+penalty = -20
+max_results = 15
+enabled = true
+
+[[content_filters]]
+label = "phone-screen"
+query = "phone screen"
+penalty = -20
+max_results = 15
+enabled = true
+```
+
+Use `max_results` as the strictness knob. A high value fetches deeper ranked
+results and can label weak matches; a low value only labels the strongest
+matches. Start with `10` to `25`, export the review HTML, and tune from there.
+
+The default config penalizes likely screenshots, documents/receipts, and display
+photos. If `albums.toml` is missing, those built-in defaults are used. If you
+provide your own `albums.toml`, its contents replace the defaults. To disable
+content filters entirely, omit `[[content_filters]]` entries or add this
+top-level setting:
+
+```toml
+content_filters = []
+```
 
 The default config creates:
 
