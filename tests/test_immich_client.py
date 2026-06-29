@@ -69,6 +69,8 @@ def test_list_assets_uses_metadata_search_endpoint():
         "page": 2,
         "size": 25,
         "type": "IMAGE",
+        "visibility": "timeline",
+        "withDeleted": False,
         "withExif": True,
     }
 
@@ -90,6 +92,8 @@ def test_list_assets_can_filter_by_taken_date_range():
         "page": 1,
         "size": 50,
         "type": "IMAGE",
+        "visibility": "timeline",
+        "withDeleted": False,
         "withExif": True,
         "takenAfter": "2026-06-01T00:00:00+00:00",
         "takenBefore": "2026-06-25T00:00:00+00:00",
@@ -110,6 +114,8 @@ def test_count_assets_reads_total_from_statistics_search():
     assert client.session.posts[0]["url"] == "http://immich.local/api/search/statistics"
     assert client.session.posts[0]["json"] == {
         "type": "IMAGE",
+        "visibility": "timeline",
+        "withDeleted": False,
         "takenAfter": "2026-06-01T00:00:00+00:00",
         "takenBefore": "2026-06-25T00:00:00+00:00",
     }
@@ -138,10 +144,26 @@ def test_verify_permissions_checks_asset_statistics():
 
     checks = client.verify_permissions()
 
+    assert checks["asset.read"] == (True, "200")
+    assert client.session.posts[0] == {
+        "url": "http://immich.local/api/search/metadata",
+        "json": {
+            "type": "IMAGE",
+            "visibility": "timeline",
+            "withDeleted": False,
+            "page": 1,
+            "size": 1,
+        },
+        "timeout": 5,
+    }
     assert checks["asset.statistics"] == (True, "200")
     assert client.session.posts[1] == {
         "url": "http://immich.local/api/search/statistics",
-        "json": {"type": "IMAGE"},
+        "json": {
+            "type": "IMAGE",
+            "visibility": "timeline",
+            "withDeleted": False,
+        },
         "timeout": 5,
     }
 
@@ -231,6 +253,8 @@ def test_iter_smart_search_assets_uses_query_and_taken_date_range():
         "page": 1,
         "size": 25,
         "type": "IMAGE",
+        "visibility": "timeline",
+        "withDeleted": False,
         "withExif": True,
         "takenAfter": "2026-06-01T00:00:00+00:00",
         "takenBefore": "2026-06-25T00:00:00+00:00",

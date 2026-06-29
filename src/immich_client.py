@@ -53,6 +53,19 @@ class ImmichClient:
                 f"{preview!r}"
             ) from e
 
+    def _timeline_image_search_payload(self) -> dict:
+        """Return the common filters for highlight-eligible image searches."""
+        return {
+            # This service scores still images, so skip videos/audio early.
+            "type": "IMAGE",
+            # Only score normal timeline photos. Archived/hidden/locked assets are
+            # intentional user exclusions and should not become highlights.
+            "visibility": "timeline",
+            # Be explicit about deleted/trashed assets so this does not depend on
+            # Immich endpoint defaults changing between versions.
+            "withDeleted": False,
+        }
+
     def search_assets(
         self,
         page: int = 1,
@@ -63,10 +76,9 @@ class ImmichClient:
         """Search assets through Immich's documented paginated metadata endpoint."""
         # Immich metadata search endpoint is the stable way to page through assets.
         payload = {
+            **self._timeline_image_search_payload(),
             "page": page,
             "size": min(size, 1000),
-            # This service scores still images, so skip videos/audio early.
-            "type": "IMAGE",
             "withExif": True,
         }
         if taken_after:
@@ -87,10 +99,10 @@ class ImmichClient:
     ) -> dict:
         """Search assets using Immich's contextual smart-search endpoint."""
         payload = {
+            **self._timeline_image_search_payload(),
             "query": query,
             "page": page,
             "size": min(size, 1000),
-            "type": "IMAGE",
             "withExif": True,
         }
         if taken_after:
@@ -107,9 +119,7 @@ class ImmichClient:
         taken_before: Optional[str] = None,
     ) -> dict:
         """Return aggregate search statistics for image assets."""
-        payload = {
-            "type": "IMAGE",
-        }
+        payload = self._timeline_image_search_payload()
         if taken_after:
             payload["takenAfter"] = taken_after
         if taken_before:
@@ -365,7 +375,11 @@ class ImmichClient:
         # asset read
         try:
             # A single item is enough to validate access while keeping probes cheap.
-            payload = {"page": 1, "size": 1}
+            payload = {
+                **self._timeline_image_search_payload(),
+                "page": 1,
+                "size": 1,
+            }
             r = self.session.post(self._url("search/metadata"), json=payload, timeout=5)
             checks["asset.read"] = (
                 r.status_code == 200,
@@ -376,7 +390,7 @@ class ImmichClient:
 
         # asset.statistics
         try:
-            payload = {"type": "IMAGE"}
+            payload = self._timeline_image_search_payload()
             r = self.session.post(
                 self._url("search/statistics"),
                 json=payload,
