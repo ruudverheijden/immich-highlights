@@ -72,3 +72,7 @@ SCORER_MAX_ASSETS = parse_positive_int_env("SCORER_MAX_ASSETS", "100", max_value
 TEMP_DIR = parse_non_empty_env("SCORER_TEMP_DIR", "/tmp/scorer")
 SCORER_BUCKET = parse_non_empty_env("SCORER_BUCKET", "MVP")
 ALBUM_CONFIG_PATH = parse_non_empty_env("SCORER_ALBUM_CONFIG_PATH", "./albums.toml")
+CONTENT_FILTER_CONFIG_PATH = parse_non_empty_env(
+    "SCORER_CONTENT_FILTER_CONFIG_PATH",
+    "./content_filters.toml",
+)

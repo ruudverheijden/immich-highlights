@@ -36,7 +36,7 @@ def test_exposure_parsing_and_quality_penalty():
 def test_face_scoring_helper():
     """Face helper exposes a simple domain scoring rule."""
     assert score_faces(0) == 0
-    assert score_faces(2) == 5
+    assert score_faces(2) == 10
     assert score_face_quality(0) == 0
     assert score_face_quality(20) == 20
     assert score_face_quality(40) == 25

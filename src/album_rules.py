@@ -106,24 +106,18 @@ def build_default_content_filters() -> list[ContentFilter]:
 
 def load_album_config(
     path: str,
+    content_filter_path: str | None = None,
     now: datetime | None = None,
     default_max_candidates: int = 100,
 ) -> tuple[list[AlbumRule], list[ContentFilter]]:
-    """Load album rules and content filters from one TOML config file."""
-    config_path = Path(path)
-    if not config_path.exists():
-        return (
-            build_time_album_rules(
-                now=now,
-                max_candidates=default_max_candidates,
-            ),
-            build_default_content_filters(),
-        )
-
-    data = _load_toml(config_path)
+    """Load album rules and content filters from separate TOML config files."""
     return (
-        _load_album_rules_from_data(data, now, default_max_candidates),
-        _load_content_filters_from_data(data),
+        load_album_rules(
+            path,
+            now=now,
+            default_max_candidates=default_max_candidates,
+        ),
+        load_content_filters(content_filter_path),
     )
 
 
@@ -133,7 +127,28 @@ def load_album_rules(
     default_max_candidates: int = 100,
 ) -> list[AlbumRule]:
     """Load rolling time-window album rules from a TOML config file."""
-    return load_album_config(path, now, default_max_candidates)[0]
+    config_path = Path(path)
+    if not config_path.exists():
+        return build_time_album_rules(
+            now=now,
+            max_candidates=default_max_candidates,
+        )
+
+    data = _load_toml(config_path)
+    return _load_album_rules_from_data(data, now, default_max_candidates)
+
+
+def load_content_filters(path: str | None = None) -> list[ContentFilter]:
+    """Load smart-search content filters from a TOML config file."""
+    if not path:
+        return build_default_content_filters()
+
+    config_path = Path(path)
+    if not config_path.exists():
+        return build_default_content_filters()
+
+    data = _load_toml(config_path)
+    return _load_content_filters_from_data(data)
 
 
 def _load_toml(config_path: Path) -> dict:
@@ -171,7 +186,9 @@ def _load_content_filters_from_data(data: dict) -> list[ContentFilter]:
     if filters is None:
         return []
     if not isinstance(filters, list):
-        raise ValueError("Album config content_filters must be a list")
+        raise ValueError(
+            "Content filter config must contain a [[content_filters]] list"
+        )
 
     content_filters = []
     for index, content_filter in enumerate(filters, start=1):

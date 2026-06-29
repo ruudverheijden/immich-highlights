@@ -7,6 +7,7 @@ from src.album_rules import (
     build_time_album_rules,
     load_album_config,
     load_album_rules,
+    load_content_filters,
 )
 
 
@@ -32,8 +33,9 @@ def test_build_time_album_rules_creates_rolling_windows():
 
 def test_load_album_rules_reads_custom_toml_config(tmp_path):
     """Users should be able to change generated albums without code changes."""
-    config_path = tmp_path / "albums.toml"
-    config_path.write_text(
+    album_config_path = tmp_path / "albums.toml"
+    content_filter_config_path = tmp_path / "content_filters.toml"
+    album_config_path.write_text(
         """
 [[albums]]
 name = "Highlights: Weekend"
@@ -43,6 +45,16 @@ limit = 8
 max_candidates = 40
 enabled = true
 
+[[albums]]
+name = "Disabled"
+bucket = "disabled"
+window_days = 10
+limit = 5
+enabled = false
+""".strip()
+    )
+    content_filter_config_path.write_text(
+        """
 [[content_filters]]
 label = "screenshot"
 query = "screenshot"
@@ -56,20 +68,16 @@ label = "disabled"
 query = "disabled"
 penalty = -5
 enabled = false
-
-[[albums]]
-name = "Disabled"
-bucket = "disabled"
-window_days = 10
-limit = 5
-enabled = false
 """.strip()
     )
     now = datetime(2026, 6, 25, 12, 0, tzinfo=timezone.utc)
 
-    rules = load_album_rules(str(config_path), now=now, default_max_candidates=100)
+    rules = load_album_rules(
+        str(album_config_path), now=now, default_max_candidates=100
+    )
     rules_from_config, content_filters = load_album_config(
-        str(config_path),
+        str(album_config_path),
+        str(content_filter_config_path),
         now=now,
         default_max_candidates=100,
     )
@@ -108,8 +116,8 @@ limit = 12
     assert rules[0].max_candidates == 77
 
 
-def test_load_album_config_without_content_filters_disables_filters(tmp_path):
-    """A user-provided config fully replaces default content filters."""
+def test_load_album_config_uses_default_filters_when_filter_file_is_missing(tmp_path):
+    """Albums and content filters are separate config files."""
     config_path = tmp_path / "albums.toml"
     config_path.write_text(
         """
@@ -123,7 +131,15 @@ limit = 12
 
     _rules, content_filters = load_album_config(str(config_path))
 
-    assert content_filters == []
+    assert content_filters == build_default_content_filters()
+
+
+def test_load_content_filters_can_disable_all_filters(tmp_path):
+    """Users can disable filters with an explicit empty content-filter file."""
+    config_path = tmp_path / "content_filters.toml"
+    config_path.write_text("content_filters = []")
+
+    assert load_content_filters(str(config_path)) == []
 
 
 def test_load_album_rules_falls_back_to_defaults_when_file_is_missing(tmp_path):
@@ -159,17 +175,11 @@ enabled = "true"
         load_album_rules(str(config_path))
 
 
-def test_load_album_config_rejects_invalid_content_filter(tmp_path):
+def test_load_content_filters_rejects_invalid_content_filter(tmp_path):
     """Bad content filter config should fail loudly at startup."""
-    config_path = tmp_path / "albums.toml"
+    config_path = tmp_path / "content_filters.toml"
     config_path.write_text(
         """
-[[albums]]
-name = "Highlights"
-bucket = "highlights"
-window_days = 7
-limit = 15
-
 [[content_filters]]
 label = "screenshot"
 query = "screenshot"
@@ -178,7 +188,7 @@ penalty = "bad"
     )
 
     with pytest.raises(ValueError, match="penalty"):
-        load_album_config(str(config_path))
+        load_content_filters(str(config_path))
 
 
 @pytest.mark.parametrize(
@@ -195,15 +205,9 @@ def test_load_album_config_rejects_invalid_optional_content_filter_fields(
     value,
 ):
     """Optional content-filter fields should fail loudly when mistyped."""
-    config_path = tmp_path / "albums.toml"
+    config_path = tmp_path / "content_filters.toml"
     config_path.write_text(
         f"""
-[[albums]]
-name = "Highlights"
-bucket = "highlights"
-window_days = 7
-limit = 15
-
 [[content_filters]]
 label = "screenshot"
 query = "screenshot"
@@ -213,4 +217,4 @@ penalty = -40
     )
 
     with pytest.raises(ValueError, match=field):
-        load_album_config(str(config_path))
+        load_content_filters(str(config_path))

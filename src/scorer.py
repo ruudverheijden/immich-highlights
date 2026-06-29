@@ -10,6 +10,7 @@ from config import (
     TEMP_DIR,
     LOG_LEVEL,
     ALBUM_CONFIG_PATH,
+    CONTENT_FILTER_CONFIG_PATH,
 )
 from immich_client import ImmichClient
 from db import init_db
@@ -63,11 +64,14 @@ def run_once():
 
     rules, content_filters = load_album_config(
         ALBUM_CONFIG_PATH,
+        CONTENT_FILTER_CONFIG_PATH,
         default_max_candidates=SCORER_MAX_ASSETS,
     )
     logger.info(
-        "Loaded album config from %s: albums=%s, content_filters=%s",
+        "Loaded config: album_config=%s, content_filter_config=%s, "
+        "albums=%s, content_filters=%s",
         ALBUM_CONFIG_PATH,
+        CONTENT_FILTER_CONFIG_PATH,
         len(rules),
         len(content_filters),
     )

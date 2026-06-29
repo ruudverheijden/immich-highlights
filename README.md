@@ -28,6 +28,13 @@ cp albums.toml.example albums.toml
 # Edit albums.toml with the highlight albums you want
 ```
 
+Optional: customize content filters:
+
+```bash
+cp content_filters.toml.example content_filters.toml
+# Edit content_filters.toml only when you want different smart-search filters
+```
+
 4. Run once:
 
 ```bash
@@ -57,7 +64,8 @@ if you prefer direct Immich thumbnail URLs.
 ## Generated albums
 
 The scorer uses Immich metadata search to build candidate sets before scoring.
-Generated albums are configured in `albums.toml`:
+Generated albums are configured in `albums.toml`. This is the main file most
+users will customize:
 
 ```toml
 [[albums]]
@@ -66,14 +74,6 @@ bucket = "last-week"
 window_days = 7
 limit = 15
 max_candidates = 100
-enabled = true
-
-[[content_filters]]
-label = "screenshot"
-query = "screenshot"
-penalty = -40
-max_results = 25
-min_search_pool = 500
 enabled = true
 ```
 
@@ -86,9 +86,11 @@ Each `[[albums]]` entry creates one rolling time-window album:
 - `max_candidates`: maximum number of Immich search results to score for this album
 - `enabled`: set to `false` to keep the config entry but skip the album
 
-Each `[[content_filters]]` entry runs an Immich smart search to find content
-that should be penalized. Assets found by those searches get labels in
-`score_details_json` and receive the configured score penalty:
+Content filters are configured separately in `content_filters.toml`. Most users
+can keep the default file unchanged. Each `[[content_filters]]` entry runs an
+Immich smart search to find content that should be penalized. Assets found by
+those searches get labels in `score_details_json` and receive the configured
+score penalty:
 
 - `label`: label stored in scoring details, such as `screenshot`
 - `query`: Immich smart-search query to run
@@ -163,11 +165,10 @@ service widen the context more before trusting smart search. Start with
 `max_results = 10` to `25` and `min_search_pool = 500`, export the review HTML,
 and tune from there.
 
-The default config penalizes likely screenshots, documents/receipts, and display
-photos. If `albums.toml` is missing, those built-in defaults are used. If you
-provide your own `albums.toml`, its contents replace the defaults. To disable
-content filters entirely, omit `[[content_filters]]` entries or add this
-top-level setting:
+The default content filter config penalizes likely screenshots,
+documents/receipts, and display-like photos. If `content_filters.toml` is
+missing, the built-in default filters are used. To disable content filters
+entirely, create `content_filters.toml` with this top-level setting:
 
 ```toml
 content_filters = []
@@ -185,12 +186,16 @@ album to the current top results. If an asset checksum is already present in the
 database, the stored score is reused instead of downloading and analyzing the
 preview again.
 
-For Docker, the image includes the default `/app/albums.toml`. To customize it,
-copy `albums.toml.example` to `albums.toml` and mount it over that path:
+For Docker, the image includes default `/app/albums.toml` and
+`/app/content_filters.toml` files. To customize albums, copy
+`albums.toml.example` to `albums.toml` and mount it over that path. To customize
+content filters, copy `content_filters.toml.example` to `content_filters.toml`
+and mount it too:
 
 ```yaml
 volumes:
   - ./albums.toml:/app/albums.toml:ro
+  - ./content_filters.toml:/app/content_filters.toml:ro
 ```
 
 # TODO
@@ -253,6 +258,12 @@ Configure the service by copying `.env.example` to `.env` and editing the values
   Path to the TOML file that defines generated time-based albums. If the file is
   missing, the built-in default albums are used. Default: `./albums.toml` for
   local runs; the Docker image sets this to `/app/albums.toml`.
+
+- `SCORER_CONTENT_FILTER_CONFIG_PATH`
+  Path to the TOML file that defines optional smart-search content filters. If
+  the file is missing, the built-in default filters are used. Default:
+  `./content_filters.toml` for local runs; the Docker image sets this to
+  `/app/content_filters.toml`.
 
 # Required API key permissions
 

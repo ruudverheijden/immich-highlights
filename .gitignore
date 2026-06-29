@@ -4,5 +4,6 @@ db/
 log/
 review/
 albums.toml
+content_filters.toml
 .env
 .venv/

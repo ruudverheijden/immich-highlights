@@ -22,7 +22,7 @@ def score_dimensions(width: int, height: int) -> int:
 def score_faces(face_count: int) -> int:
     """Reward photos with at least one detected face."""
     if face_count > 0:
-        return 5
+        return 10
     return 0
 
 
