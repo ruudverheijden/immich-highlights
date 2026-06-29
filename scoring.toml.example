@@ -1,41 +1,112 @@
 [weights]
-# Baseline every photo starts from before bonuses and penalties are applied.
+# Every photo starts with this score before bonuses and penalties are added.
+# A higher value makes almost every photo score higher; a lower value makes the
+# scorer stricter overall.
 base_score = 50
-# Face and user-preference signals are strong indicators for personal highlights.
+
+# Added when Immich detected at least one face. This is only a simple "has face"
+# bonus; face size, sharpness, and position are scored separately below.
 face_present_bonus = 10
+
+# Maximum extra score for face quality. Face quality prefers faces that are large
+# enough, near the center, sharp, and not too dark. The calculated face quality
+# can never add more than this value.
 max_face_quality_bonus = 25
+
+# Converts Immich's 1-5 star rating into a score adjustment. A rating of 3 is
+# neutral. Each star above 3 adds this value, each star below 3 subtracts it.
+# With the default 15: rating 5 = +30, rating 4 = +15, rating 3 = 0,
+# rating 2 = -15, rating 1 = -30.
 rating_step = 15
+
+# Added when the photo has GPS/location metadata. This is small on purpose:
+# location makes photos more useful for albums, but should not dominate quality.
 location_bonus = 3
+
+# Added when the user marked the photo as favorite in Immich.
 favorite_bonus = 20
+
+# Added when Immich marks the photo as edited. Edited photos often reflect a
+# user preference, but this may depend on your workflow.
 edited_bonus = 10
+
+# Maximum extra score for portrait-like photos: a sharp subject with a softer
+# background. This is an image-analysis signal, not the iOS Portrait metadata.
 max_portrait_quality_bonus = 15
 
 [technical_quality]
-# Blur variance is higher for sharper images. Values depend on thumbnail size,
-# so tune these with the review export instead of treating them as universal.
+# Blur variance is higher for sharper images. Values depend on thumbnail size and
+# content, so tune these with the review export instead of treating them as
+# universal camera-quality numbers.
+
+# If blur variance is below this value, the photo is considered blurry.
 blur_low_threshold = 50
+
+# Applied when blur variance is below blur_low_threshold.
 blur_low_penalty = -20
+
+# If blur variance is above this value, the photo is considered clearly sharp.
 blur_high_threshold = 200
+
+# Applied when blur variance is above blur_high_threshold.
 blur_high_bonus = 10
-# Small images are often screenshots, shared media, or low-quality exports.
+
+# If the shortest side of the image is below this pixel size, the image is
+# treated as low resolution.
 small_image_min_side = 640
+
+# Applied when the image is smaller than small_image_min_side.
 small_image_penalty = -15
+
+# If the longest side is above this pixel size, the image gets a small bonus for
+# having enough detail/resolution.
 large_image_max_side = 3000
+
+# Applied when the image is larger than large_image_max_side.
 large_image_bonus = 5
-# High ISO and long exposure are weak proxies for noisy or motion-blurred photos.
+
+# If EXIF ISO is above this value, the photo may be noisy because it was likely
+# taken in low light.
 high_iso_threshold = 3200
+
+# Applied when ISO is above high_iso_threshold.
 high_iso_penalty = -5
+
+# If EXIF exposure time is longer than this many seconds, the photo may have
+# motion blur. 0.03333333333333333 is roughly 1/30 second.
 long_exposure_threshold_seconds = 0.03333333333333333
+
+# Applied when exposure time is longer than long_exposure_threshold_seconds.
 long_exposure_penalty = -5
-# Contrast and brightness catch technically poor images without being too strict.
+
+# If the image contrast is below this value, the photo may look flat or washed
+# out. Contrast is measured as average RGB standard deviation.
 low_contrast_threshold = 30
+
+# Applied when contrast is below low_contrast_threshold.
 low_contrast_penalty = -5
+
+# If contrast is above this value, the photo gets a small bonus for stronger
+# visual separation.
 high_contrast_threshold = 80
+
+# Applied when contrast is above high_contrast_threshold.
 high_contrast_bonus = 3
+
+# If average brightness is below this value, the photo is considered too dark.
 dark_brightness_threshold = 35
+
+# If average brightness is above this value, the photo is considered too bright.
 bright_brightness_threshold = 225
+
+# Applied when brightness is below dark_brightness_threshold or above
+# bright_brightness_threshold.
 brightness_penalty = -10
 
 [content_filters]
-# Caps content-filter penalties so multiple filters cannot push too hard.
+# Lowest allowed applied content-filter penalty for one photo. For example, if
+# the selected filter match says -80 but this is -50, the applied penalty is
+# capped at -50. Matching multiple filters does not stack penalties; the code
+# uses the filter where Immich ranked the photo highest and then applies this
+# cap.
 content_filter_min_penalty = -50
