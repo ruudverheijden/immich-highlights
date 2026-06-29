@@ -11,4 +11,4 @@ ENV PYTHONPATH=/app/src
 ENV SCORER_ALBUM_CONFIG_PATH=/app/albums.toml
 ENV SCORER_CONTENT_FILTER_CONFIG_PATH=/app/content_filters.toml
 ENV SCORER_SCORING_CONFIG_PATH=/app/scoring.toml
-CMD ["python", "scorer.py"]
+CMD ["python", "app.py"]

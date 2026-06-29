@@ -171,13 +171,13 @@ are updated instead of forgotten.
 With Docker Compose:
 
 ```bash
-docker compose run --rm photo-scorer python scorer.py --force-rescore
+docker compose run --rm photo-scorer python app.py --force-rescore
 ```
 
 For local development:
 
 ```bash
-python src/scorer.py --force-rescore
+python src/app.py --force-rescore
 ```
 
 ## Advanced Configuration Files
@@ -431,7 +431,7 @@ cp scoring.toml.example scoring.toml
 Run once:
 
 ```bash
-python src/scorer.py
+python src/app.py
 ```
 
 Run checks:
@@ -443,6 +443,42 @@ Run checks:
 ```
 
 ## Developer Notes
+
+### Pipeline Architecture
+
+The application is being structured as a modular photo curation pipeline. The
+current implementation has an explicit pipeline spine in `src/pipeline.py`:
+
+1. Create shared context: SQLite connection, Immich client, album manager
+2. Verify API permissions
+3. Load album, content-filter, and scoring configuration
+4. Run the current album generation stage
+
+The current album generation stage still contains several responsibilities:
+candidate discovery, content-filter matching, image analysis, scoring,
+selection, and Immich album sync. Keeping that behavior behind a pipeline stage
+is intentional for now: it preserves the working service while giving future
+refactors a clear boundary.
+
+The target architecture is to split those internals into independent stages:
+
+- asset discovery
+- filtering
+- technical analysis
+- semantic analysis
+- event detection
+- duplicate detection
+- scoring
+- diversity selection
+- album generation
+
+The guiding rule for future contributors: analysis stages should produce facts,
+scoring should turn facts into explainable score components, and selection
+should decide which scored assets make the best album. Avoid adding new image
+analysis or selection behavior directly to the CLI entrypoint.
+
+Each expensive or reusable stage should store structured outputs in SQLite so
+later stages can consume previous results without reprocessing images.
 
 Future functionality ideas:
 

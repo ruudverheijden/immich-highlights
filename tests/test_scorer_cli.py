@@ -1,6 +1,6 @@
 import pytest
 
-from src.scorer import parse_args
+from src.app import parse_args
 
 
 def test_parse_args_accepts_force_rescore():
