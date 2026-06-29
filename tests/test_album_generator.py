@@ -3,6 +3,7 @@ from PIL import Image
 
 from src.album_generator import (
     collect_content_filter_matches,
+    content_filter_state,
     generate_album_for_rule,
     score_or_reuse_asset,
 )
@@ -221,6 +222,20 @@ def test_collect_content_filter_matches_expands_small_search_pool():
     ]
     assert client.smart_calls[0]["taken_after"] == "2026-05-28T00:00:00+00:00"
     assert matches["a2"][0]["rank"] == 1
+
+
+def test_content_filter_state_uses_best_ranked_penalty_only():
+    """Multiple content labels should not stack penalties for one photo."""
+    labels, penalty = content_filter_state(
+        [
+            {"label": "paperwork", "penalty": -25, "rank": 12},
+            {"label": "product-photo", "penalty": -20, "rank": 1},
+            {"label": "shopping", "penalty": -15, "rank": 3},
+        ]
+    )
+
+    assert labels == ["paperwork", "product-photo", "shopping"]
+    assert penalty == -20
 
 
 def test_score_or_reuse_asset_stores_content_filter_penalty(tmp_path):

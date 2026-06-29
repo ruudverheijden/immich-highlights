@@ -118,6 +118,11 @@ To reduce that, the service uses this flow:
 5. Apply the penalty only to smart-search results that also appear in the
    original album candidates.
 
+A photo may match multiple content filters. All labels are stored for review,
+but the score uses only the penalty from the filter where Immich ranked that
+photo highest. This avoids stacking several penalties for one similar-looking
+photo.
+
 For example, a `Last Week` album may contain only 80 photos. A direct smart
 search for `computer screen` inside those 80 photos can produce weak matches.
 With `min_search_pool = 500`, the service may widen the context to several

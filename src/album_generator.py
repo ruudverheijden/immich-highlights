@@ -49,10 +49,16 @@ def cached_content_filter_state(cached: dict) -> tuple[list[str], int]:
 
 
 def content_filter_state(matches: list[dict]) -> tuple[list[str], int]:
-    """Return labels and capped total penalty for smart-search matches."""
+    """Return labels and the penalty from the strongest smart-search match."""
     labels = [match["label"] for match in matches]
-    penalty = sum(match["penalty"] for match in matches)
-    return labels, max(MAX_CONTENT_FILTER_PENALTY, penalty)
+    if not matches:
+        return labels, 0
+
+    # A photo can appear in multiple smart-search filters. Stacking every
+    # penalty overreacts to similar queries, so the score uses only the filter
+    # where Immich ranked the photo highest. Rank 1 is strongest.
+    strongest_match = min(matches, key=lambda match: match.get("rank", 999999))
+    return labels, max(MAX_CONTENT_FILTER_PENALTY, strongest_match["penalty"])
 
 
 def get_asset_exif_for_storage(meta: dict) -> dict:
