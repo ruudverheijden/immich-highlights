@@ -59,12 +59,11 @@ class FakeClient:
         )
         return iter([{"id": "a2"}])
 
-    def count_assets(self, taken_after=None, taken_before=None, stop_at=None):
+    def count_assets(self, taken_after=None, taken_before=None):
         self.count_calls.append(
             {
                 "taken_after": taken_after,
                 "taken_before": taken_before,
-                "stop_at": stop_at,
             }
         )
         if self.count_results:
@@ -182,7 +181,6 @@ def test_collect_content_filter_matches_scopes_smart_search_to_rule_window():
         {
             "taken_after": "2026-06-18T00:00:00+00:00",
             "taken_before": "2026-06-25T00:00:00+00:00",
-            "stop_at": 500,
         }
     ]
     assert client.smart_calls == [

@@ -95,53 +95,44 @@ def test_list_assets_can_filter_by_taken_date_range():
     }
 
 
-def test_count_assets_pages_metadata_search_until_stop_count():
-    """Content filters count through metadata search without extra permissions."""
+def test_count_assets_reads_total_from_statistics_search():
+    """Content filters use Immich statistics for readable exact pool counts."""
     client = ImmichClient("http://immich.local", dry_run=True)
-    client.session = FakeSession(
-        [
-            {
-                "assets": {
-                    "items": [{"id": str(i)} for i in range(1000)],
-                    "nextPage": "2",
-                }
-            },
-            {
-                "assets": {
-                    "items": [{"id": str(i)} for i in range(1000, 1200)],
-                    "nextPage": None,
-                }
-            },
-        ]
-    )
+    client.session = FakeSession([{"total": 123}])
 
     count = client.count_assets(
         taken_after="2026-06-01T00:00:00+00:00",
         taken_before="2026-06-25T00:00:00+00:00",
-        stop_at=1100,
     )
 
-    assert count == 1100
-    assert client.session.posts[0]["url"] == "http://immich.local/api/search/metadata"
+    assert count == 123
+    assert client.session.posts[0]["url"] == "http://immich.local/api/search/statistics"
     assert client.session.posts[0]["json"] == {
-        "page": 1,
-        "size": 1000,
         "type": "IMAGE",
-        "withExif": True,
         "takenAfter": "2026-06-01T00:00:00+00:00",
         "takenBefore": "2026-06-25T00:00:00+00:00",
     }
+
+
+def test_verify_permissions_checks_asset_statistics():
+    """Startup diagnostics should catch missing statistics permission."""
+    client = ImmichClient("http://immich.local", dry_run=True)
+    client.session = FakeSession(
+        [
+            {"assets": {"items": []}},
+            {"total": 0},
+            [],
+            [],
+        ]
+    )
+
+    checks = client.verify_permissions()
+
+    assert checks["asset.statistics"] == (True, "200")
     assert client.session.posts[1] == {
-        "url": "http://immich.local/api/search/metadata",
-        "json": {
-            "page": 2,
-            "size": 1000,
-            "type": "IMAGE",
-            "withExif": True,
-            "takenAfter": "2026-06-01T00:00:00+00:00",
-            "takenBefore": "2026-06-25T00:00:00+00:00",
-        },
-        "timeout": 10,
+        "url": "http://immich.local/api/search/statistics",
+        "json": {"type": "IMAGE"},
+        "timeout": 5,
     }
 
 

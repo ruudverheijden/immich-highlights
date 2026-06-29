@@ -202,7 +202,6 @@ def content_filter_context_window(client, rule, content_filter):
         count = client.count_assets(
             taken_after=taken_after.isoformat(),
             taken_before=taken_before.isoformat(),
-            stop_at=content_filter.min_search_pool,
         )
         logger.info(
             "Content filter '%s' context window for album '%s': "

@@ -101,6 +101,27 @@ class ImmichClient:
         resp.raise_for_status()
         return self._json(resp)
 
+    def search_statistics(
+        self,
+        taken_after: Optional[str] = None,
+        taken_before: Optional[str] = None,
+    ) -> dict:
+        """Return aggregate search statistics for image assets."""
+        payload = {
+            "type": "IMAGE",
+        }
+        if taken_after:
+            payload["takenAfter"] = taken_after
+        if taken_before:
+            payload["takenBefore"] = taken_before
+        resp = self.session.post(
+            self._url("search/statistics"),
+            json=payload,
+            timeout=10,
+        )
+        resp.raise_for_status()
+        return self._json(resp)
+
     def list_assets(
         self,
         page: int = 1,
@@ -121,27 +142,18 @@ class ImmichClient:
         self,
         taken_after: Optional[str] = None,
         taken_before: Optional[str] = None,
-        stop_at: Optional[int] = None,
     ) -> int:
-        """Count image assets in a search window using only asset.read permission."""
-        page = 1
-        total = 0
-        while True:
-            response = self.search_assets(
-                page=page,
-                size=1000,
-                taken_after=taken_after,
-                taken_before=taken_before,
-            )
-            asset_page = response.get("assets", {})
-            total += len(asset_page.get("items", []))
-            if stop_at is not None and total >= stop_at:
-                return stop_at
-
-            next_page = asset_page.get("nextPage")
-            if not next_page:
-                return total
-            page = int(next_page)
+        """Return Immich's exact image count for a search window."""
+        response = self.search_statistics(
+            taken_after=taken_after,
+            taken_before=taken_before,
+        )
+        total = response.get("total")
+        if isinstance(total, int):
+            return total
+        raise ValueError(
+            f"Immich statistics response is missing integer total: {response}"
+        )
 
     def iter_assets(
         self,
@@ -361,6 +373,21 @@ class ImmichClient:
             )
         except Exception as e:
             checks["asset.read"] = (False, str(e))
+
+        # asset.statistics
+        try:
+            payload = {"type": "IMAGE"}
+            r = self.session.post(
+                self._url("search/statistics"),
+                json=payload,
+                timeout=5,
+            )
+            checks["asset.statistics"] = (
+                r.status_code == 200,
+                str(r.status_code),
+            )
+        except Exception as e:
+            checks["asset.statistics"] = (False, str(e))
 
         # album read
         try:

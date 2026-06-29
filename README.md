@@ -254,6 +254,7 @@ Configure the service by copying `.env.example` to `.env` and editing the values
 Create a dedicated Immich API key with the following minimal permissions for the scorer to operate properly:
 
 - `asset.read` (list and download assets)
+- `asset.statistics` (count assets in content-filter search windows)
 - `asset.update` (optional — modify asset metadata if you implement writes)
 - `asset.view` (view asset metadata)
 - `album.create` (create highlight albums)

@@ -38,9 +38,9 @@ def run_once():
     )
     try:
         perms = client.verify_permissions()
-        # Asset reads are required for scoring and content-filter search-window
-        # sizing; other probes are advisory diagnostics.
-        critical = ["asset.read"]
+        # Asset reads and statistics are required for scoring and content-filter
+        # search-window sizing; other probes are advisory diagnostics.
+        critical = ["asset.read", "asset.statistics"]
         # Keep startup logs compact by aggregating only probes that did not
         # return a successful HTTP status.
         failed_permissions = {
