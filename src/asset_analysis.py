@@ -389,6 +389,13 @@ def collect_image_details(
     details["dimensions"] = pil_image.size
 
     try:
+        details["phash"] = compute_phash(pil_image)
+    except Exception:
+        # Perceptual hashes are useful for future dedupe, but should not block
+        # scoring when imagehash/Pillow cannot process a specific preview.
+        details["phash"] = None
+
+    try:
         details["faces"] = normalize_immich_faces(immich_faces or [], pil_image.size)
         details["face_count"] = len(details["faces"])
         details["face_quality"] = compute_best_face_quality(pil_image, details["faces"])

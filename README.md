@@ -480,6 +480,18 @@ analysis or selection behavior directly to the CLI entrypoint.
 Each expensive or reusable stage should store structured outputs in SQLite so
 later stages can consume previous results without reprocessing images.
 
+The database now has separate stage-oriented tables alongside the legacy
+`processed_assets` cache used by the current review/export flow:
+
+- `assets`: Immich-sourced metadata from asset discovery
+- `technical_analysis`: objective image facts such as blur, brightness,
+  contrast, perceptual hash, and portrait quality
+- `semantic_analysis`: user/semantic facts such as rating, faces, location,
+  favorites, edited status, and content-filter labels
+- `asset_scores`: explainable score outputs and score components
+- `duplicate_groups` and `duplicate_group_members`: reserved for future exact
+  and near-duplicate detection
+
 Future functionality ideas:
 
 - Fine tune scoring

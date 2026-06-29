@@ -322,6 +322,7 @@ def test_collect_image_details_returns_scoring_inputs():
 
     assert details["dimensions"] == (800, 600)
     assert "blur_variance" in details
+    assert details["phash"]
     assert "face_count" in details
     assert "face_quality" in details
     assert "faces" in details
