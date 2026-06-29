@@ -10,13 +10,14 @@ from PIL import Image, UnidentifiedImageError
 try:
     from .asset_analysis import get_asset_exif, score_asset
     from .db import get_processed_asset, upsert_processed_asset
+    from .scoring_engine import DEFAULT_SCORING_CONFIG, calculate_score_details
 except ImportError:
     from asset_analysis import get_asset_exif, score_asset
     from db import get_processed_asset, upsert_processed_asset
+    from scoring_engine import DEFAULT_SCORING_CONFIG, calculate_score_details
 
 
 logger = logging.getLogger("album_generator")
-MAX_CONTENT_FILTER_PENALTY = -50
 CONTENT_FILTER_MAX_CONTEXT_DAYS = 365
 
 
@@ -48,7 +49,10 @@ def cached_content_filter_state(cached: dict) -> tuple[list[str], int]:
     )
 
 
-def content_filter_state(matches: list[dict]) -> tuple[list[str], int]:
+def content_filter_state(
+    matches: list[dict],
+    scoring_config=DEFAULT_SCORING_CONFIG,
+) -> tuple[list[str], int]:
     """Return labels and the penalty from the strongest smart-search match."""
     labels = [match["label"] for match in matches]
     if not matches:
@@ -58,7 +62,10 @@ def content_filter_state(matches: list[dict]) -> tuple[list[str], int]:
     # penalty overreacts to similar queries, so the score uses only the filter
     # where Immich ranked the photo highest. Rank 1 is strongest.
     strongest_match = min(matches, key=lambda match: match.get("rank", 999999))
-    return labels, max(MAX_CONTENT_FILTER_PENALTY, strongest_match["penalty"])
+    return labels, max(
+        scoring_config.content_filter_min_penalty,
+        strongest_match["penalty"],
+    )
 
 
 def get_asset_exif_for_storage(meta: dict) -> dict:
@@ -80,6 +87,37 @@ def immich_album_url(base_url: str, album_id: str) -> str:
     return f"{base_url.rstrip('/')}/albums/{album_id}"
 
 
+def recalculate_cached_score(
+    conn,
+    cached: dict,
+    asset_id: str,
+    checksum: str | None,
+    meta: dict,
+    scoring_config=DEFAULT_SCORING_CONFIG,
+):
+    """Recompute a cached asset score from stored inputs when possible."""
+    inputs = cached.get("score_details", {}).get("inputs")
+    if not inputs:
+        return None
+
+    try:
+        score_details = calculate_score_details(inputs, scoring_config)
+    except (KeyError, TypeError, ValueError):
+        logger.debug("Cached scoring inputs for photo %s are incomplete", asset_id)
+        return None
+
+    upsert_processed_asset(
+        conn,
+        asset_id,
+        checksum,
+        score_details["score"],
+        cached.get("exif") or get_asset_exif_for_storage(meta),
+        inputs.get("rating", cached.get("rating")),
+        score_details,
+    )
+    return score_details
+
+
 def score_or_reuse_asset(
     client,
     conn,
@@ -87,6 +125,7 @@ def score_or_reuse_asset(
     temp_dir: str,
     base_url: str,
     content_filter_matches: list[dict] | None = None,
+    scoring_config=DEFAULT_SCORING_CONFIG,
 ):
     """Return `(asset_id, score)` by using the DB cache or scoring the preview."""
     asset_id = get_asset_id(asset)
@@ -94,7 +133,10 @@ def score_or_reuse_asset(
         return None
 
     content_filter_matches = content_filter_matches or []
-    content_labels, content_penalty = content_filter_state(content_filter_matches)
+    content_labels, content_penalty = content_filter_state(
+        content_filter_matches,
+        scoring_config,
+    )
     meta = client.get_asset_metadata(asset_id)
     checksum = get_asset_checksum(asset, meta)
     cached = get_processed_asset(conn, asset_id)
@@ -105,6 +147,23 @@ def score_or_reuse_asset(
         and cached.get("checksum") == checksum
         and cached_state == (content_labels, content_penalty)
     ):
+        score_details = recalculate_cached_score(
+            conn,
+            cached,
+            asset_id,
+            checksum,
+            meta,
+            scoring_config,
+        )
+        if score_details:
+            logger.debug(
+                "Recalculated cached score for photo %s: score=%s, url=%s",
+                asset_id,
+                score_details["score"],
+                immich_asset_url(base_url, asset_id),
+            )
+            return asset_id, score_details["score"]
+
         logger.debug(
             "Reused cached score for photo %s: score=%s, url=%s",
             asset_id,
@@ -131,6 +190,7 @@ def score_or_reuse_asset(
                 immich_faces=immich_faces,
                 content_filter_matches=content_filter_matches,
                 content_filter_penalty=content_penalty,
+                scoring_config=scoring_config,
             )
 
         checksum = checksum or checksum_file(tmp_path)
@@ -314,6 +374,7 @@ def generate_album_for_rule(
     temp_dir: str,
     base_url: str,
     content_filters=None,
+    scoring_config=DEFAULT_SCORING_CONFIG,
 ):
     """Score a rule's Immich candidates and create or update its album."""
     logger.info(
@@ -358,6 +419,7 @@ def generate_album_for_rule(
             temp_dir,
             base_url,
             content_filter_matches=asset_content_matches,
+            scoring_config=scoring_config,
         )
         if result:
             scored.append(result)
@@ -401,6 +463,7 @@ def generate_albums(
     temp_dir: str,
     base_url: str,
     content_filters=None,
+    scoring_config=DEFAULT_SCORING_CONFIG,
 ):
     """Generate all configured highlight albums."""
     results = []
@@ -414,6 +477,7 @@ def generate_albums(
                 temp_dir,
                 base_url,
                 content_filters=content_filters,
+                scoring_config=scoring_config,
             )
         except requests.RequestException:
             logger.exception("Immich API failed while generating '%s'", rule.name)

@@ -1,0 +1,41 @@
+[weights]
+# Baseline every photo starts from before bonuses and penalties are applied.
+base_score = 50
+# Face and user-preference signals are strong indicators for personal highlights.
+face_present_bonus = 10
+max_face_quality_bonus = 25
+rating_step = 15
+location_bonus = 3
+favorite_bonus = 20
+edited_bonus = 10
+max_portrait_quality_bonus = 15
+
+[technical_quality]
+# Blur variance is higher for sharper images. Values depend on thumbnail size,
+# so tune these with the review export instead of treating them as universal.
+blur_low_threshold = 50
+blur_low_penalty = -20
+blur_high_threshold = 200
+blur_high_bonus = 10
+# Small images are often screenshots, shared media, or low-quality exports.
+small_image_min_side = 640
+small_image_penalty = -15
+large_image_max_side = 3000
+large_image_bonus = 5
+# High ISO and long exposure are weak proxies for noisy or motion-blurred photos.
+high_iso_threshold = 3200
+high_iso_penalty = -5
+long_exposure_threshold_seconds = 0.03333333333333333
+long_exposure_penalty = -5
+# Contrast and brightness catch technically poor images without being too strict.
+low_contrast_threshold = 30
+low_contrast_penalty = -5
+high_contrast_threshold = 80
+high_contrast_bonus = 3
+dark_brightness_threshold = 35
+bright_brightness_threshold = 225
+brightness_penalty = -10
+
+[content_filters]
+# Caps content-filter penalties so multiple filters cannot push too hard.
+content_filter_min_penalty = -50

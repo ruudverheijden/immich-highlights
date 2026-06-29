@@ -9,6 +9,7 @@ from src.album_generator import (
 )
 from src.album_rules import AlbumRule, ContentFilter
 from src.db import get_processed_asset, init_db, upsert_processed_asset
+from src.scoring_engine import ScoringConfig
 
 
 class FakeClient:
@@ -278,6 +279,55 @@ def test_content_filter_state_uses_best_ranked_penalty_only():
 
     assert labels == ["paperwork", "product-photo", "shopping"]
     assert penalty == -20
+
+
+def test_content_filter_state_uses_configured_penalty_cap():
+    """The scoring config controls how hard content filters can penalize."""
+    labels, penalty = content_filter_state(
+        [{"label": "screenshot", "penalty": -80, "rank": 1}],
+        ScoringConfig(content_filter_min_penalty=-25),
+    )
+
+    assert labels == ["screenshot"]
+    assert penalty == -25
+
+
+def test_score_or_reuse_asset_recalculates_cached_inputs_with_config(tmp_path):
+    """Changing scoring config should update cached scores on the next run."""
+    conn = init_db(str(tmp_path / "test.db"))
+    score_details = {
+        "score": 50,
+        "inputs": {
+            "blur_variance": 250,
+            "dimensions": [800, 800],
+            "face_count": 0,
+            "face_quality": 0,
+            "rating": 3,
+            "iso": 200,
+            "exposure_seconds": None,
+            "has_location": False,
+            "is_favorite": False,
+            "is_edited": False,
+            "content_labels": [],
+            "content_filter_penalty": 0,
+        },
+    }
+    upsert_processed_asset(conn, "a1", "checksum-1", 50, {}, None, score_details)
+    client = FakeClient()
+
+    result = score_or_reuse_asset(
+        client,
+        conn,
+        {"id": "a1", "checksum": "checksum-1"},
+        str(tmp_path),
+        "http://immich.local",
+        scoring_config=ScoringConfig(base_score=30, blur_high_bonus=0),
+    )
+
+    row = get_processed_asset(conn, "a1")
+    assert result == ("a1", 30)
+    assert row["score"] == 30
+    assert client.preview_calls == []
 
 
 def test_score_or_reuse_asset_rescores_when_content_filter_state_changes(tmp_path):

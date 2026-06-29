@@ -11,12 +11,14 @@ from config import (
     LOG_LEVEL,
     ALBUM_CONFIG_PATH,
     CONTENT_FILTER_CONFIG_PATH,
+    SCORING_CONFIG_PATH,
 )
 from immich_client import ImmichClient
 from db import init_db
 from album_manager import AlbumManager
 from album_generator import generate_albums
 from album_rules import load_album_config
+from scoring_engine import load_scoring_config
 
 
 logging.basicConfig(level=LOG_LEVEL)
@@ -67,11 +69,13 @@ def run_once():
         CONTENT_FILTER_CONFIG_PATH,
         default_max_candidates=SCORER_MAX_ASSETS,
     )
+    scoring_config = load_scoring_config(SCORING_CONFIG_PATH)
     logger.info(
-        "Loaded config: album_config=%s, content_filter_config=%s, "
+        "Loaded config: album_config=%s, content_filter_config=%s, scoring_config=%s, "
         "albums=%s, content_filters=%s",
         ALBUM_CONFIG_PATH,
         CONTENT_FILTER_CONFIG_PATH,
+        SCORING_CONFIG_PATH,
         len(rules),
         len(content_filters),
     )
@@ -88,6 +92,7 @@ def run_once():
             TEMP_DIR,
             IMMICH_API_URL,
             content_filters=content_filters,
+            scoring_config=scoring_config,
         )
     except requests.RequestException as e:
         logger.error(

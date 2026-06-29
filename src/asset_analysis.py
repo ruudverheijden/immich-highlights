@@ -6,9 +6,9 @@ import imagehash
 import numpy as np
 
 try:
-    from .scoring_engine import calculate_score_details
+    from .scoring_engine import DEFAULT_SCORING_CONFIG, calculate_score_details
 except ImportError:
-    from scoring_engine import calculate_score_details
+    from scoring_engine import DEFAULT_SCORING_CONFIG, calculate_score_details
 
 
 def compute_blur_variance(pil_image: Image.Image) -> float:
@@ -435,6 +435,7 @@ def score_asset(
     immich_faces: list[dict] | None = None,
     content_filter_matches: list[dict] | None = None,
     content_filter_penalty: int = 0,
+    scoring_config=DEFAULT_SCORING_CONFIG,
 ) -> dict:
     """Analyze an asset and attach its final highlight score."""
     details = collect_image_details(
@@ -444,7 +445,7 @@ def score_asset(
         content_filter_matches=content_filter_matches,
         content_filter_penalty=content_filter_penalty,
     )
-    score_details = calculate_score_details(details)
+    score_details = calculate_score_details(details, scoring_config)
     details["score"] = score_details["score"]
     details["score_details"] = score_details
     return details

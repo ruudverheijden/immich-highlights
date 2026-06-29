@@ -1,4 +1,6 @@
 from src.scoring_engine import (
+    DEFAULT_SCORING_CONFIG,
+    ScoringConfig,
     score_blur,
     score_dimensions,
     score_face_quality,
@@ -14,6 +16,7 @@ from src.scoring_engine import (
     clamp_score,
     calculate_score,
     calculate_score_details,
+    load_scoring_config,
 )
 
 
@@ -60,9 +63,70 @@ def test_contrast_helpers_and_clamp_score():
     assert score_portrait_quality(10) == 10
     assert score_portrait_quality(30) == 15
     assert score_content_filters(-40) == -40
+    assert (
+        score_content_filters(-80, ScoringConfig(content_filter_min_penalty=-30)) == -30
+    )
     assert score_content_filters(5) == 0
     assert clamp_score(-10) == 0
     assert clamp_score(110) == 100
+
+
+def test_load_scoring_config_uses_defaults_when_file_is_missing(tmp_path):
+    """A missing local config should not block first-time setup."""
+    assert load_scoring_config(str(tmp_path / "missing.toml")) == DEFAULT_SCORING_CONFIG
+
+
+def test_load_scoring_config_overrides_known_numeric_fields(tmp_path):
+    """Users can tune selected weights without copying every value."""
+    path = tmp_path / "scoring.toml"
+    path.write_text(
+        """
+[weights]
+base_score = 40
+favorite_bonus = 12
+
+[technical_quality]
+blur_low_threshold = 75
+
+[content_filters]
+content_filter_min_penalty = -25
+""",
+        encoding="utf-8",
+    )
+
+    config = load_scoring_config(str(path))
+
+    assert config.base_score == 40
+    assert config.favorite_bonus == 12
+    assert config.blur_low_threshold == 75
+    assert config.content_filter_min_penalty == -25
+    assert config.rating_step == DEFAULT_SCORING_CONFIG.rating_step
+
+
+def test_load_scoring_config_rejects_unknown_fields(tmp_path):
+    """Typos in scoring config should fail loudly instead of changing nothing."""
+    path = tmp_path / "scoring.toml"
+    path.write_text("[weights]\nfavourite_bonus = 12\n", encoding="utf-8")
+
+    try:
+        load_scoring_config(str(path))
+    except ValueError as e:
+        assert "weights.favourite_bonus" in str(e)
+    else:
+        raise AssertionError("Expected ValueError for unknown scoring field")
+
+
+def test_load_scoring_config_rejects_boolean_values(tmp_path):
+    """TOML booleans should not be accepted as accidental numeric values."""
+    path = tmp_path / "scoring.toml"
+    path.write_text("[weights]\nfavorite_bonus = true\n", encoding="utf-8")
+
+    try:
+        load_scoring_config(str(path))
+    except ValueError as e:
+        assert "favorite_bonus" in str(e)
+    else:
+        raise AssertionError("Expected ValueError for boolean scoring value")
 
 
 def test_calculate_score_combines_scoring_inputs():

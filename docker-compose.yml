@@ -10,6 +10,7 @@ services:
       SCORER_DB_PATH: /app/db/scorer.db
       SCORER_ALBUM_CONFIG_PATH: /app/albums.toml
       SCORER_CONTENT_FILTER_CONFIG_PATH: /app/content_filters.toml
+      SCORER_SCORING_CONFIG_PATH: /app/scoring.toml
       TZ: UTC
     volumes:
       - ./db:/app/db
@@ -21,4 +22,7 @@ services:
       # Optional: copy content_filters.toml.example to content_filters.toml and
       # uncomment this line to override the default content filters.
       # - ./content_filters.toml:/app/content_filters.toml:ro
+      # Optional: copy scoring.toml.example to scoring.toml and uncomment this
+      # line to tune scoring weights without rebuilding the image.
+      # - ./scoring.toml:/app/scoring.toml:ro
     restart: unless-stopped

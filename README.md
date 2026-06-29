@@ -35,6 +35,13 @@ cp content_filters.toml.example content_filters.toml
 # Edit content_filters.toml only when you want different smart-search filters
 ```
 
+Optional: tune scoring weights:
+
+```bash
+cp scoring.toml.example scoring.toml
+# Edit scoring.toml when you want different scoring weights or thresholds
+```
+
 4. Run once:
 
 ```bash
@@ -165,6 +172,45 @@ service widen the context more before trusting smart search. Start with
 `max_results = 10` to `25` and `min_search_pool = 500`, export the review HTML,
 and tune from there.
 
+## Scoring config
+
+Scoring weights and thresholds are configured in `scoring.toml`. Most users can
+start with `scoring.toml.example`, run the scorer, open the review export, and
+then adjust values until the ranking matches their own taste.
+
+The scoring config is intentionally not stored in the database. Cached photos
+store normalized scoring inputs, so rerunning the scorer can recalculate scores
+with the latest config without downloading every unchanged image again.
+
+The file has three sections:
+
+- `[weights]`: general bonuses such as favorites, ratings, faces, location, and
+  portrait-like photos.
+- `[technical_quality]`: blur, resolution, ISO, exposure, contrast, and
+  brightness thresholds.
+- `[content_filters]`: the minimum content-filter penalty cap.
+
+Example:
+
+```toml
+[weights]
+base_score = 50
+favorite_bonus = 20
+rating_step = 15
+
+[technical_quality]
+blur_low_threshold = 50
+blur_low_penalty = -20
+blur_high_threshold = 200
+blur_high_bonus = 10
+
+[content_filters]
+content_filter_min_penalty = -50
+```
+
+Only numeric values are accepted. Unknown field names fail fast at startup so
+typos do not silently change scoring behavior.
+
 The default content filter config penalizes likely screenshots,
 documents/receipts, and display-like photos. If `content_filters.toml` is
 missing, the built-in default filters are used. To disable content filters
@@ -186,16 +232,18 @@ album to the current top results. If an asset checksum is already present in the
 database, the stored score is reused instead of downloading and analyzing the
 preview again.
 
-For Docker, the image includes default `/app/albums.toml` and
-`/app/content_filters.toml` files. To customize albums, copy
+For Docker, the image includes default `/app/albums.toml`,
+`/app/content_filters.toml`, and `/app/scoring.toml` files. To customize albums, copy
 `albums.toml.example` to `albums.toml` and mount it over that path. To customize
 content filters, copy `content_filters.toml.example` to `content_filters.toml`
-and mount it too:
+and mount it too. To tune scoring, copy `scoring.toml.example` to
+`scoring.toml` and mount it as well:
 
 ```yaml
 volumes:
   - ./albums.toml:/app/albums.toml:ro
   - ./content_filters.toml:/app/content_filters.toml:ro
+  - ./scoring.toml:/app/scoring.toml:ro
 ```
 
 # TODO
@@ -264,6 +312,11 @@ Configure the service by copying `.env.example` to `.env` and editing the values
   the file is missing, the built-in default filters are used. Default:
   `./content_filters.toml` for local runs; the Docker image sets this to
   `/app/content_filters.toml`.
+
+- `SCORER_SCORING_CONFIG_PATH`
+  Path to the TOML file that defines scoring weights and thresholds. If the file
+  is missing, the built-in defaults are used. Default: `./scoring.toml` for
+  local runs; the Docker image sets this to `/app/scoring.toml`.
 
 # Required API key permissions
 

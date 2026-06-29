@@ -76,3 +76,7 @@ CONTENT_FILTER_CONFIG_PATH = parse_non_empty_env(
     "SCORER_CONTENT_FILTER_CONFIG_PATH",
     "./content_filters.toml",
 )
+SCORING_CONFIG_PATH = parse_non_empty_env(
+    "SCORER_SCORING_CONFIG_PATH",
+    "./scoring.toml",
+)
