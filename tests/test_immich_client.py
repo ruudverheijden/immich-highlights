@@ -1,4 +1,5 @@
 from src.immich_client import ImmichClient
+import pytest
 import requests
 
 
@@ -114,6 +115,15 @@ def test_count_assets_reads_total_from_statistics_search():
     }
 
 
+def test_count_assets_rejects_statistics_response_without_total():
+    """A changed Immich statistics response should fail instead of returning 0."""
+    client = ImmichClient("http://immich.local", dry_run=True)
+    client.session = FakeSession([{"assets": {"items": []}}])
+
+    with pytest.raises(ValueError, match="missing integer total"):
+        client.count_assets()
+
+
 def test_verify_permissions_checks_asset_statistics():
     """Startup diagnostics should catch missing statistics permission."""
     client = ImmichClient("http://immich.local", dry_run=True)
@@ -134,6 +144,33 @@ def test_verify_permissions_checks_asset_statistics():
         "json": {"type": "IMAGE"},
         "timeout": 5,
     }
+
+
+def test_verify_permissions_reports_asset_statistics_failure():
+    """Missing statistics permission should be visible in startup diagnostics."""
+    client = ImmichClient("http://immich.local", dry_run=True)
+    client.session = FakeSession(
+        [
+            {"assets": {"items": []}},
+            {"message": "Forbidden"},
+            [],
+            [],
+        ]
+    )
+    original_post = client.session.post
+
+    def post_with_forbidden_statistics(url, json=None, timeout=None):
+        response = original_post(url, json=json, timeout=timeout)
+        if url.endswith("/search/statistics"):
+            response.status_code = 403
+        return response
+
+    client.session.post = post_with_forbidden_statistics
+
+    checks = client.verify_permissions()
+
+    assert checks["asset.read"] == (True, "200")
+    assert checks["asset.statistics"] == (False, "403")
 
 
 def test_iter_assets_follows_next_page_until_limit():

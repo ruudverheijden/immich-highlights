@@ -179,3 +179,38 @@ penalty = "bad"
 
     with pytest.raises(ValueError, match="penalty"):
         load_album_config(str(config_path))
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("max_results", "0"),
+        ("min_search_pool", "false"),
+        ("enabled", '"true"'),
+    ],
+)
+def test_load_album_config_rejects_invalid_optional_content_filter_fields(
+    tmp_path,
+    field,
+    value,
+):
+    """Optional content-filter fields should fail loudly when mistyped."""
+    config_path = tmp_path / "albums.toml"
+    config_path.write_text(
+        f"""
+[[albums]]
+name = "Highlights"
+bucket = "highlights"
+window_days = 7
+limit = 15
+
+[[content_filters]]
+label = "screenshot"
+query = "screenshot"
+penalty = -40
+{field} = {value}
+""".strip()
+    )
+
+    with pytest.raises(ValueError, match=field):
+        load_album_config(str(config_path))

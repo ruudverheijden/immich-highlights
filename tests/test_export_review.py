@@ -2,6 +2,7 @@ from src.db import init_db, upsert_processed_asset
 from src.db import upsert_album_mapping
 from src.export_review import (
     attach_album_memberships,
+    content_filter_labels,
     download_thumbnail,
     first_photo_datetime,
     format_datetime,
@@ -10,6 +11,7 @@ from src.export_review import (
     load_album_memberships,
     load_processed_assets,
     PLACEHOLDER_THUMBNAIL,
+    render_content_filter_options,
     write_review_html,
 )
 
@@ -159,7 +161,33 @@ def test_write_review_html_exports_scoring_details(tmp_path):
     assert "&quot;screenshot&quot;" in html
     assert '<option value="any">Has any content label</option>' in html
     assert '<option value="screenshot">screenshot</option>' in html
+    assert '<option value="none">No content label</option>' in html
     assert "localStorage" in html
+
+
+def test_content_filter_options_are_deduplicated_and_sorted():
+    """The content-label dropdown should stay stable as labels accumulate."""
+    assets = [
+        {
+            "score_details": {
+                "inputs": {
+                    "content_filter_matches": [
+                        {"label": "shopping"},
+                        {"label": "receipt"},
+                        {"label": "shopping"},
+                    ]
+                }
+            }
+        },
+        {"score_details": {"inputs": {"content_filter_matches": []}}},
+    ]
+
+    assert content_filter_labels(assets[0]) == ["shopping", "receipt"]
+    options = render_content_filter_options(assets)
+
+    assert options.index('value="receipt"') < options.index('value="shopping"')
+    assert options.count('value="shopping"') == 1
+    assert '<option value="none">No content label</option>' in options
 
 
 def test_write_review_html_uses_placeholder_when_thumbnail_download_fails(

@@ -335,3 +335,23 @@ def test_collect_image_details_returns_scoring_inputs():
     assert "hist_std" in details
     assert "brightness" in details
     assert "portrait_quality" in details
+
+
+def test_collect_image_details_preserves_content_filter_details():
+    """Content-filter matches should be stored for review and recalculation."""
+    img = Image.new("RGB", (800, 600), color=(120, 120, 120))
+    matches = [
+        {"label": "receipt", "query": "receipt", "penalty": -30, "rank": 1},
+        {"label": "shopping", "query": "shopping", "penalty": -15, "rank": 4},
+    ]
+
+    details = collect_image_details(
+        {},
+        img,
+        content_filter_matches=matches,
+        content_filter_penalty=-30,
+    )
+
+    assert details["content_filter_matches"] == matches
+    assert details["content_labels"] == ["receipt", "shopping"]
+    assert details["content_filter_penalty"] == -30

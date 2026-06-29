@@ -14,12 +14,14 @@ from src.db import get_processed_asset, init_db, upsert_processed_asset
 class FakeClient:
     """Small Immich client double for album-generator tests."""
 
-    def __init__(self, count_results=None):
+    def __init__(self, count_results=None, smart_results=None):
         self.iter_calls = []
         self.smart_calls = []
         self.count_calls = []
         self.metadata_calls = []
+        self.preview_calls = []
         self.count_results = list(count_results or [])
+        self.smart_results = smart_results or [{"id": "a2"}]
 
     def iter_assets(self, page_size, max_assets, taken_after=None, taken_before=None):
         self.iter_calls.append(
@@ -58,7 +60,7 @@ class FakeClient:
                 "taken_before": taken_before,
             }
         )
-        return iter([{"id": "a2"}])
+        return iter(self.smart_results)
 
     def count_assets(self, taken_after=None, taken_before=None):
         self.count_calls.append(
@@ -72,6 +74,7 @@ class FakeClient:
         return 500
 
     def download_asset_preview(self, asset_id, dest_path):
+        self.preview_calls.append(asset_id)
         Image.new("RGB", (800, 600), color=(120, 120, 120)).save(
             dest_path, format="JPEG"
         )
@@ -224,6 +227,45 @@ def test_collect_content_filter_matches_expands_small_search_pool():
     assert matches["a2"][0]["rank"] == 1
 
 
+def test_collect_content_filter_matches_skips_when_context_stays_too_small():
+    """Filters should not run when even the widest context is too small."""
+    client = FakeClient(count_results=[20, 40, 80, 160, 320, 400, 450])
+    filters = [
+        ContentFilter(
+            label="screenshot",
+            query="screenshot",
+            penalty=-40,
+            max_results=25,
+            min_search_pool=500,
+        )
+    ]
+
+    matches = collect_content_filter_matches(client, make_rule(), filters, {"a2"})
+
+    assert matches == {}
+    assert client.smart_calls == []
+    assert client.count_calls[-1]["taken_after"] == "2025-06-25T00:00:00+00:00"
+
+
+def test_collect_content_filter_matches_only_labels_album_candidates():
+    """Expanded smart-search context should not penalize non-candidate assets."""
+    client = FakeClient(smart_results=[{"id": "outside"}, {"id": "a2"}])
+    filters = [
+        ContentFilter(
+            label="receipt",
+            query="receipt",
+            penalty=-30,
+            max_results=25,
+        )
+    ]
+
+    matches = collect_content_filter_matches(client, make_rule(), filters, {"a2"})
+
+    assert matches == {
+        "a2": [{"label": "receipt", "query": "receipt", "penalty": -30, "rank": 2}]
+    }
+
+
 def test_content_filter_state_uses_best_ranked_penalty_only():
     """Multiple content labels should not stack penalties for one photo."""
     labels, penalty = content_filter_state(
@@ -236,6 +278,44 @@ def test_content_filter_state_uses_best_ranked_penalty_only():
 
     assert labels == ["paperwork", "product-photo", "shopping"]
     assert penalty == -20
+
+
+def test_score_or_reuse_asset_rescores_when_content_filter_state_changes(tmp_path):
+    """Cached images must be rescored when new content labels alter the score."""
+    conn = init_db(str(tmp_path / "test.db"))
+    upsert_processed_asset(
+        conn,
+        "a2",
+        "checksum-2",
+        90,
+        {},
+        None,
+        {
+            "score": 90,
+            "inputs": {
+                "content_labels": [],
+                "content_filter_penalty": 0,
+            },
+        },
+    )
+    client = FakeClient()
+
+    result = score_or_reuse_asset(
+        client,
+        conn,
+        {"id": "a2", "checksum": "checksum-2"},
+        str(tmp_path),
+        "http://immich.local",
+        content_filter_matches=[
+            {"label": "receipt", "query": "receipt", "penalty": -30, "rank": 1}
+        ],
+    )
+
+    row = get_processed_asset(conn, "a2")
+    assert result == ("a2", row["score"])
+    assert client.preview_calls == ["a2"]
+    assert row["score_details"]["inputs"]["content_labels"] == ["receipt"]
+    assert row["score_details"]["inputs"]["content_filter_penalty"] == -30
 
 
 def test_score_or_reuse_asset_stores_content_filter_penalty(tmp_path):
