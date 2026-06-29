@@ -1,78 +1,231 @@
 # Immich Photo Highlight Scoring Service (MVP)
 
-This repository contains an MVP background service that searches an Immich
-instance for time-based candidate photos, scores them, and creates highlight
-albums via the Immich API.
+This service creates rolling highlight albums in Immich. It searches your Immich
+library for recent photos, scores the candidates, and creates or updates albums
+such as `Highlights: Last Week`, `Highlights: Last Month`, and
+`Highlights: Last Year`.
 
-## Quick start (local)
+The default setup is meant to run as a Docker container. You only need an Immich
+URL, an API key, and a small persistent database folder.
 
-1. Create a virtualenv and install:
+## Quick Start With Docker
 
-```bash
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
-```
-
-2. Copy and configure `.env`:
+1. Copy the example environment file:
 
 ```bash
 cp .env.example .env
-# Edit .env with your Immich API URL, key, and other settings
 ```
 
-3. Optional: customize generated albums:
+2. Edit `.env` and set at least:
 
-```bash
-cp albums.toml.example albums.toml
-# Edit albums.toml with the highlight albums you want
+```env
+IMMICH_API_URL=http://your-immich-host:2283
+IMMICH_API_KEY=your_immich_api_key_here
+SCORER_DRY_RUN=true
 ```
 
-Optional: customize content filters:
+Use the same Immich base URL you open in your browser. Do not add `/api`; the
+service adds that internally.
 
-```bash
-cp content_filters.toml.example content_filters.toml
-# Edit content_filters.toml only when you want different smart-search filters
-```
-
-Optional: tune scoring weights:
-
-```bash
-cp scoring.toml.example scoring.toml
-# Edit scoring.toml when you want different scoring weights or thresholds
-```
-
-4. Run once:
-
-```bash
-python src/scorer.py
-```
-
-5. Docker (build & run):
+3. Start the container:
 
 ```bash
 docker compose up --build -d
 ```
 
-## Development review export
+4. Check the logs:
 
 ```bash
-python src/export_review.py
+docker compose logs -f photo-scorer
 ```
 
-This writes `review/index.html` from the local SQLite database. It is a
-development-only report for comparing scores with your own judgement and is not
-used by the Docker service. Labels you enter in the report are stored only in
-your browser's local storage. The export downloads thumbnails to
-`review/thumbnails/` using `IMMICH_API_KEY`, so the report does not depend on
-browser authentication or remote thumbnail URLs. Use `--no-download-thumbnails`
-if you prefer direct Immich thumbnail URLs.
+Keep `SCORER_DRY_RUN=true` for the first run. The service will score photos and
+log what it would do, but it will not create or update albums in Immich.
 
-## Generated albums
+5. When the logs look good, set this in `.env`:
 
-The scorer uses Immich metadata search to build candidate sets before scoring.
+```env
+SCORER_DRY_RUN=false
+```
+
+Then restart:
+
+```bash
+docker compose up -d
+```
+
+## What It Creates
+
+By default the service creates these generated albums:
+
+- `Highlights: Last Week` for photos taken in the last 7 days
+- `Highlights: Last Month` for photos taken in the last 30 days
+- `Highlights: Last Year` for photos taken in the last 365 days
+
+Each run asks Immich for image assets in the configured date ranges, excludes
+non-timeline and deleted assets, scores the candidates, stores score details in
+SQLite, and syncs each generated album to the current top results.
+
+The generated album mapping is stored locally, so reruns update the same Immich
+albums instead of creating new albums every time.
+
+## API Key Permissions
+
+Create a dedicated Immich API key for this service. The key needs these
+permissions for the default Docker setup:
+
+- `asset.read` to list metadata and download image previews
+- `asset.statistics` to count photos for content-filter search windows
+- `asset.view` to read asset metadata
+- `album.create` to create generated highlight albums
+- `album.read` to read existing generated albums
+- `album.update` to update album metadata
+- `albumAsset.create` to add assets to generated albums
+- `albumAsset.delete` to remove assets from generated albums on reruns
+- `face.read` to use Immich's own face detections for face-based scoring
+
+Optional permissions that are currently not required for the default flow:
+
+- `album.statistics`
+- `archive.read`
+- `memory.read`
+- `person.read`
+- `person.statistics`
+- `tag.create`, `tag.read`, `tag.update`
+- `user.read`
+- `asset.update`
+
+The service performs a lightweight permission check at startup and logs failed
+checks. If you only want to test without writes, keep `SCORER_DRY_RUN=true`.
+
+## Basic Configuration
+
+Most users only need `.env`.
+
+- `IMMICH_API_URL`
+  The Immich base URL as opened in your browser, without `/api`. Example:
+  `http://10.1.2.3:2283`.
+
+- `IMMICH_API_KEY`
+  A dedicated Immich API key. Keep this secret and do not commit `.env`.
+
+- `SCORER_DRY_RUN`
+  Controls whether the service writes albums to Immich. Use `true` while
+  testing; set to `false` when you want real albums to be created. Must be
+  exactly `true` or `false`. Default: `true`.
+
+- `SCORER_DB_PATH`
+  Path to the SQLite database. In Docker this should usually stay
+  `/app/db/scorer.db`, with `./db` mounted as a volume. Default:
+  `./db/scorer.db`.
+
+- `SCORER_LOG_LEVEL`
+  Python logging level, such as `INFO`, `DEBUG`, `WARNING`, or `ERROR`.
+  Default: `INFO`.
+
+- `SCORER_MAX_ASSETS`
+  Maximum number of candidate assets to process per generated album rule. This
+  protects large libraries from long scans and makes test runs predictable. Must
+  be a positive integer up to `1000`. Default: `100`.
+
+## Persistent Data
+
+Docker Compose mounts these folders by default:
+
+```yaml
+volumes:
+  - ./db:/app/db
+  - ./log:/app/log
+  - /tmp/scorer:/tmp/scorer
+```
+
+The important one is `./db`. It contains the SQLite database with processed
+asset checksums, scores, detailed scoring inputs, and generated album mappings.
+Keep this folder if you want reruns to update existing generated albums and
+avoid reprocessing unchanged photos.
+
+## Incremental Scanning
+
+The service is incremental for the expensive image-analysis work. Every run
+still asks Immich for the current album candidates and fetches metadata for each
+candidate, because it needs to know which photos are in the configured time
+windows and whether their checksums changed.
+
+Unchanged photos are not downloaded and analyzed again. If a candidate asset has
+the same checksum and the same content-filter state as the previous run, the
+service reuses the normalized scoring inputs stored in SQLite. It can then
+recalculate the final score cheaply, for example after changing `scoring.toml`,
+without recomputing blur, brightness, contrast, face quality, or portrait
+quality from the image preview.
+
+An image preview is downloaded and analyzed again only when the asset is new,
+the checksum changed, the content-filter labels changed, or the old database row
+does not contain enough scoring inputs to recalculate from cache.
+
+## Advanced Configuration Files
+
+The Docker image includes default config files inside the container:
+
+- `/app/albums.toml`
+- `/app/content_filters.toml`
+- `/app/scoring.toml`
+
+You can run the service without creating any of these files yourself. To
+override one, copy the matching example file and mount it into the container.
+
+```bash
+cp albums.toml.example albums.toml
+cp content_filters.toml.example content_filters.toml
+cp scoring.toml.example scoring.toml
+```
+
+Then uncomment the matching mount in `docker-compose.yml`:
+
+```yaml
+volumes:
+  - ./albums.toml:/app/albums.toml:ro
+  - ./content_filters.toml:/app/content_filters.toml:ro
+  - ./scoring.toml:/app/scoring.toml:ro
+```
+
+You can override the paths with environment variables:
+
+- `SCORER_ALBUM_CONFIG_PATH`
+  Path to the TOML file that defines generated time-based albums. If the file is
+  missing, the built-in default albums are used. Docker default:
+  `/app/albums.toml`.
+
+- `SCORER_CONTENT_FILTER_CONFIG_PATH`
+  Path to the TOML file that defines optional smart-search content filters. If
+  the file is missing, the built-in default filters are used. Docker default:
+  `/app/content_filters.toml`.
+
+- `SCORER_SCORING_CONFIG_PATH`
+  Path to the TOML file that defines scoring weights and thresholds. If the file
+  is missing, the built-in defaults are used. Docker default:
+  `/app/scoring.toml`.
+
+Other advanced environment variables:
+
+- `SCORER_SCAN_INTERVAL_HOURS`
+  Intended interval for scheduled/background runs. The current command runs one
+  scoring pass when the container starts, but this value is kept for future
+  scheduling/background wiring. Must be a positive integer. Default: `24`.
+
+- `SCORER_TEMP_DIR`
+  Directory for temporary preview images downloaded from Immich while scoring.
+  Files are removed after each asset is processed. Docker Compose mounts
+  `/tmp/scorer` by default. Must not be empty. Default: `/tmp/scorer`.
+
+- `SCORER_BUCKET`
+  Legacy label from the original single-album flow. The current generated album
+  flow uses each album's `bucket` from `albums.toml`. Must not be empty.
+  Default: `MVP`.
+
+## Custom Albums
+
 Generated albums are configured in `albums.toml`. This is the main file most
-users will customize:
+users customize:
 
 ```toml
 [[albums]]
@@ -90,14 +243,19 @@ Each `[[albums]]` entry creates one rolling time-window album:
 - `bucket`: stable internal id used to update the same generated album later
 - `window_days`: how far back Immich should search by taken date
 - `limit`: maximum number of top-scoring photos to put in the album
-- `max_candidates`: maximum number of Immich search results to score for this album
+- `max_candidates`: maximum number of Immich search results to score for this
+  album
 - `enabled`: set to `false` to keep the config entry but skip the album
 
-Content filters are configured separately in `content_filters.toml`. Most users
-can keep the default file unchanged. Each `[[content_filters]]` entry runs an
-Immich smart search to find content that should be penalized. Assets found by
-those searches get labels in `score_details_json` and receive the configured
-score penalty:
+## Content Filters
+
+Content filters are configured in `content_filters.toml`. Most users can keep
+the default file unchanged.
+
+Each `[[content_filters]]` entry runs an Immich smart search to find content
+that should be penalized, such as screenshots, receipts, documents, or photos of
+screens. Assets found by those searches get labels in `score_details_json` and
+receive the configured score penalty.
 
 - `label`: label stored in scoring details, such as `screenshot`
 - `query`: Immich smart-search query to run
@@ -111,13 +269,19 @@ score penalty:
   that are also in the original album candidates.
 - `enabled`: set to `false` to keep the config entry but skip the filter
 
-Content filters are intentionally a little more careful than a direct Immich
-smart search. Immich returns ranked matches, but it does not expose an absolute
-confidence score. If a filter searches a small album window, Immich can still
-return the "best" results even when none are truly good matches. That creates
-false positives.
+To disable content filters entirely, create `content_filters.toml` with this
+top-level setting:
 
-To reduce that, the service uses this flow:
+```toml
+content_filters = []
+```
+
+Content filters are intentionally more careful than a direct Immich smart
+search. Immich returns ranked matches, but it does not expose an absolute
+confidence score. If a filter searches a small album window, Immich can still
+return the "best" results even when none are truly good matches.
+
+To reduce false positives, the service uses this flow:
 
 1. Build the normal album candidate list from the album's `window_days`.
 2. For each content filter, start smart search with the same date window.
@@ -131,12 +295,6 @@ A photo may match multiple content filters. All labels are stored for review,
 but the score uses only the penalty from the filter where Immich ranked that
 photo highest. This avoids stacking several penalties for one similar-looking
 photo.
-
-For example, a `Last Week` album may contain only 80 photos. A direct smart
-search for `computer screen` inside those 80 photos can produce weak matches.
-With `min_search_pool = 500`, the service may widen the context to several
-months, ask Immich for the strongest screen-like photos in that larger set, and
-then penalize only the matching photos from the original week.
 
 Smart-search queries are semantic, not strict keyword filters. A query with
 multiple words is treated as one natural-language phrase. It is not an `AND`
@@ -167,28 +325,27 @@ enabled = true
 
 Use `max_results` as the strictness knob. A high value fetches deeper ranked
 results and can label weak matches; a low value only labels the strongest
-matches. Use `min_search_pool` as the reliability knob. A higher value makes the
-service widen the context more before trusting smart search. Start with
+matches. Use `min_search_pool` as the reliability knob. Start with
 `max_results = 10` to `25` and `min_search_pool = 500`, export the review HTML,
 and tune from there.
 
-## Scoring config
+## Scoring Config
 
-Scoring weights and thresholds are configured in `scoring.toml`. Most users can
-start with `scoring.toml.example`, run the scorer, open the review export, and
-then adjust values until the ranking matches their own taste.
+Scoring weights and thresholds are configured in `scoring.toml`. Start with
+`scoring.toml.example`, run the service, inspect the review export, and adjust
+values until the ranking matches your own taste.
 
 The scoring config is intentionally not stored in the database. Cached photos
-store normalized scoring inputs, so rerunning the scorer can recalculate scores
+store normalized scoring inputs, so rerunning the service can recalculate scores
 with the latest config without downloading every unchanged image again.
 
 The file has three sections:
 
 - `[weights]`: general bonuses such as favorites, ratings, faces, location, and
-  portrait-like photos.
+  portrait-like photos
 - `[technical_quality]`: blur, resolution, ISO, exposure, contrast, and
-  brightness thresholds.
-- `[content_filters]`: the minimum content-filter penalty cap.
+  brightness thresholds
+- `[content_filters]`: the minimum content-filter penalty cap
 
 Example:
 
@@ -211,144 +368,69 @@ content_filter_min_penalty = -50
 Only numeric values are accepted. Unknown field names fail fast at startup so
 typos do not silently change scoring behavior.
 
-The default content filter config penalizes likely screenshots,
-documents/receipts, and display-like photos. If `content_filters.toml` is
-missing, the built-in default filters are used. To disable content filters
-entirely, create `content_filters.toml` with this top-level setting:
+## Review Export
 
-```toml
-content_filters = []
+The review export is a development/tuning tool. It writes `review/index.html`
+from the local SQLite database so you can compare calculated scores with your
+own judgement.
+
+Run it locally:
+
+```bash
+python src/export_review.py
 ```
 
-The default config creates:
+Labels you enter in the report are stored only in your browser's local storage.
+The export downloads thumbnails to `review/thumbnails/` using `IMMICH_API_KEY`,
+so the report does not depend on browser authentication or remote thumbnail
+URLs. Use `--no-download-thumbnails` if you prefer direct Immich thumbnail URLs.
 
-- `Highlights: Last Week` for photos taken in the last 7 days
-- `Highlights: Last Month` for photos taken in the last 30 days
-- `Highlights: Last Year` for photos taken in the last 365 days
+## Local Development
 
-Each album rule asks Immich for image assets in its date range, scores only those
-candidates, stores the score details in SQLite, and then syncs the generated
-album to the current top results. If an asset checksum is already present in the
-database, the stored score is reused instead of downloading and analyzing the
-preview again.
+Docker is the recommended way to run the service as an end user. For local
+development, use a virtual environment:
 
-For Docker, the image includes default `/app/albums.toml`,
-`/app/content_filters.toml`, and `/app/scoring.toml` files. To customize albums, copy
-`albums.toml.example` to `albums.toml` and mount it over that path. To customize
-content filters, copy `content_filters.toml.example` to `content_filters.toml`
-and mount it too. To tune scoring, copy `scoring.toml.example` to
-`scoring.toml` and mount it as well:
-
-```yaml
-volumes:
-  - ./albums.toml:/app/albums.toml:ro
-  - ./content_filters.toml:/app/content_filters.toml:ro
-  - ./scoring.toml:/app/scoring.toml:ro
+```bash
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
 ```
 
-# TODO
-- Extend scoring, deduplication, and scheduling in follow-up iterations.
+Copy and configure `.env`:
 
+```bash
+cp .env.example .env
+```
 
-# Environment variables
+Optional local overrides:
 
-Configure the service by copying `.env.example` to `.env` and editing the values.
+```bash
+cp albums.toml.example albums.toml
+cp content_filters.toml.example content_filters.toml
+cp scoring.toml.example scoring.toml
+```
 
-- `IMMICH_API_URL`
-  The Immich base URL as opened in your browser, without `/api`. The app adds
-  `/api` internally for HTTP calls and uses this base URL for clickable log
-  links. Example: `http://10.1.2.3:2283`.
+Run once:
 
-- `IMMICH_API_KEY`
-  A dedicated Immich API key. Create one in Immich with at least the permissions
-  listed below, including `albumAsset.create` and `albumAsset.delete` for
-  updating existing generated albums. Add `face.read` when you want the scorer
-  to use Immich's own face detections for face-based scoring. Keep this secret
-  and do not commit your `.env` file.
+```bash
+python src/scorer.py
+```
 
-- `SCORER_DRY_RUN`
-  Controls whether the service writes albums to Immich. Use `true` while testing;
-  set to `false` when you want real albums to be created. Must be exactly
-  `true` or `false`. Default: `true`.
+Run checks:
 
-- `SCORER_DB_PATH`
-  Path to the SQLite database used to remember processed assets, scores, EXIF
-  data, ratings, and detailed scoring JSON for later inspection or tuning. Must
-  not be empty. Default: `./db/scorer.db`.
+```bash
+.venv/bin/black .
+.venv/bin/flake8 .
+.venv/bin/python -m pytest
+```
 
-- `SCORER_SCAN_INTERVAL_HOURS`
-  Intended interval for scheduled/background runs. The current one-shot command
-  does not use scheduling yet, but Docker/background wiring can use this value.
-  Must be a positive integer. Default: `24`.
+## Developer Notes
 
-- `SCORER_MAX_ASSETS`
-  Maximum number of candidate assets to process per generated album rule. This
-  protects large libraries from long scans and makes test runs predictable. Must
-  be a positive integer up to `1000`. Default: `100`.
+Future functionality ideas:
 
-- `SCORER_BUCKET`
-  Legacy label from the original single-album flow. The current time-based
-  generator creates `Highlights: Last Week`, `Highlights: Last Month`, and
-  `Highlights: Last Year` with fixed internal buckets. Must not be empty.
-  Default: `MVP`.
-
-- `SCORER_TEMP_DIR`
-  Directory for temporary preview images downloaded from Immich while scoring.
-  Files are removed after each asset is processed. Must not be empty. Default:
-  `/tmp/scorer`.
-
-- `SCORER_LOG_LEVEL`
-  Python logging level, such as `INFO`, `DEBUG`, `WARNING`, or `ERROR`. Use
-  `INFO` for normal runs and `DEBUG` only when you add debug logs. Must be one
-  of `DEBUG`, `INFO`, `WARNING`, `ERROR`, or `CRITICAL`. Default: `INFO`.
-
-- `SCORER_ALBUM_CONFIG_PATH`
-  Path to the TOML file that defines generated time-based albums. If the file is
-  missing, the built-in default albums are used. Default: `./albums.toml` for
-  local runs; the Docker image sets this to `/app/albums.toml`.
-
-- `SCORER_CONTENT_FILTER_CONFIG_PATH`
-  Path to the TOML file that defines optional smart-search content filters. If
-  the file is missing, the built-in default filters are used. Default:
-  `./content_filters.toml` for local runs; the Docker image sets this to
-  `/app/content_filters.toml`.
-
-- `SCORER_SCORING_CONFIG_PATH`
-  Path to the TOML file that defines scoring weights and thresholds. If the file
-  is missing, the built-in defaults are used. Default: `./scoring.toml` for
-  local runs; the Docker image sets this to `/app/scoring.toml`.
-
-# Required API key permissions
-
-Create a dedicated Immich API key with the following minimal permissions for the scorer to operate properly:
-
-- `asset.read` (list and download assets)
-- `asset.statistics` (count assets in content-filter search windows)
-- `asset.update` (optional — modify asset metadata if you implement writes)
-- `asset.view` (view asset metadata)
-- `album.create` (create highlight albums)
-- `album.read` (list/read albums)
-- `album.update` (update album metadata)
-- `album.statistics` (optional)
-- `albumAsset.create` (add assets to an album)
-- `albumAsset.delete` (remove assets from an album)
-- `archive.read` (optional)
-- `face.read` (recommended — use Immich's own face detections for face-based scoring)
-- `memory.read` (optional)
-- `person.read` (optional)
-- `person.statistics` (optional)
-- `tag.create`, `tag.read`, `tag.update` (optional — for tag-based features)
-- `user.read` (optional)
-
-The scorer performs a lightweight permission check at startup for API calls it
-actually uses. If you only want to test without writes, set `SCORER_DRY_RUN=true`
-in `.env`.
-
-# TODO
-Future functionalities to include:
 - Fine tune scoring
-- Deduplicate based on similarity of photos
-- Deduplicate based on location: only take the highest scoring photos if multiple photos are taken at roughly the same place and time
-- Test to service running in Docker on Synology
-- Test for large photo libraries
-- Add feature to force cleaning the database and start from scratch
+- Deduplicate based on visual similarity
+- Deduplicate based on location and time
+- Test the service running in Docker on Synology
+- Test larger photo libraries
+- Add a maintenance command to clear the local database and start fresh
