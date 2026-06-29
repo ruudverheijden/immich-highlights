@@ -48,6 +48,8 @@ CREATE TABLE IF NOT EXISTS semantic_analysis (
     rating INTEGER,
     face_count INTEGER,
     face_quality INTEGER,
+    iso REAL,
+    exposure_seconds REAL,
     has_location INTEGER,
     is_favorite INTEGER,
     is_edited INTEGER,
@@ -126,6 +128,11 @@ CREATE TABLE IF NOT EXISTS sync_log (
 """
 
 
+def without_none_values(mapping: dict) -> dict:
+    """Drop absent optional stage values before feeding scoring helpers."""
+    return {key: value for key, value in mapping.items() if value is not None}
+
+
 def init_db(db_path: str):
     """Create the SQLite database and return an open connection."""
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -198,15 +205,17 @@ def upsert_semantic_analysis(conn, asset_id, checksum, inputs):
     cur = conn.cursor()
     cur.execute(
         "INSERT INTO semantic_analysis "
-        "(asset_id, checksum, rating, face_count, face_quality, has_location, "
-        "is_favorite, is_edited, content_labels_json, "
+        "(asset_id, checksum, rating, face_count, face_quality, iso, "
+        "exposure_seconds, has_location, is_favorite, is_edited, content_labels_json, "
         "content_filter_matches_json, details_json, analyzed_at) "
-        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
         "ON CONFLICT(asset_id) DO UPDATE SET "
         "checksum=excluded.checksum, "
         "rating=excluded.rating, "
         "face_count=excluded.face_count, "
         "face_quality=excluded.face_quality, "
+        "iso=excluded.iso, "
+        "exposure_seconds=excluded.exposure_seconds, "
         "has_location=excluded.has_location, "
         "is_favorite=excluded.is_favorite, "
         "is_edited=excluded.is_edited, "
@@ -220,6 +229,8 @@ def upsert_semantic_analysis(conn, asset_id, checksum, inputs):
             inputs.get("rating"),
             inputs.get("face_count"),
             inputs.get("face_quality"),
+            inputs.get("iso"),
+            inputs.get("exposure_seconds"),
             int(bool(inputs.get("has_location"))),
             int(bool(inputs.get("is_favorite"))),
             int(bool(inputs.get("is_edited"))),
@@ -250,6 +261,96 @@ def upsert_asset_score(conn, asset_id, score_details, album_bucket="global"):
             json.dumps(score_details.get("components", {})),
         ),
     )
+
+
+def get_technical_analysis(conn, asset_id):
+    """Fetch stored technical-analysis facts for one asset."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT checksum, blur_variance, brightness, contrast, phash, "
+        "portrait_quality, details_json FROM technical_analysis WHERE asset_id = ?",
+        (asset_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    details = json.loads(row[6] or "{}")
+    return without_none_values(
+        {
+            **details,
+            "checksum": row[0],
+            "blur_variance": row[1],
+            "brightness": row[2],
+            "hist_std": row[3],
+            "phash": row[4],
+            "portrait_quality": row[5],
+        }
+    )
+
+
+def get_semantic_analysis(conn, asset_id):
+    """Fetch stored semantic-analysis facts for one asset."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT checksum, rating, face_count, face_quality, iso, exposure_seconds, "
+        "has_location, is_favorite, is_edited, content_labels_json, "
+        "content_filter_matches_json, details_json "
+        "FROM semantic_analysis WHERE asset_id = ?",
+        (asset_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    details = json.loads(row[11] or "{}")
+    result = without_none_values(
+        {
+            **details,
+            "checksum": row[0],
+            "face_count": row[2],
+            "face_quality": row[3],
+            "has_location": bool(row[6]),
+            "is_favorite": bool(row[7]),
+            "is_edited": bool(row[8]),
+            "content_labels": json.loads(row[9] or "[]"),
+            "content_filter_matches": json.loads(row[10] or "[]"),
+        }
+    )
+    # These keys are required scoring inputs even when the asset is unrated or
+    # has no usable EXIF exposure data.
+    result["rating"] = row[1]
+    result["iso"] = row[4]
+    result["exposure_seconds"] = row[5]
+    return result
+
+
+def get_asset_score(conn, asset_id, album_bucket="global"):
+    """Fetch stored scoring output for one asset/context."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT score, raw_score, components_json, calculated_at "
+        "FROM asset_scores WHERE asset_id = ? AND album_bucket = ?",
+        (asset_id, album_bucket),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        "score": row[0],
+        "raw_score": row[1],
+        "components": json.loads(row[2] or "{}"),
+        "calculated_at": row[3],
+    }
+
+
+def get_scoring_inputs(conn, asset_id):
+    """Combine stage outputs into the input shape expected by the scoring engine."""
+    technical = get_technical_analysis(conn, asset_id)
+    semantic = get_semantic_analysis(conn, asset_id)
+    if not technical or not semantic:
+        return None
+    inputs = {**technical, **semantic}
+    inputs.pop("checksum", None)
+    return inputs
 
 
 def upsert_processed_asset(

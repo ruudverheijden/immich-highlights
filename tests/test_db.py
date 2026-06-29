@@ -2,8 +2,12 @@ import os
 import tempfile
 import json
 from src.db import (
+    get_asset_score,
     get_album_mapping,
     get_processed_asset,
+    get_scoring_inputs,
+    get_semantic_analysis,
+    get_technical_analysis,
     init_db,
     upsert_album_mapping,
     upsert_processed_asset,
@@ -79,6 +83,8 @@ def test_processed_asset_upsert_populates_stage_tables(tmp_path):
             "face_count": 2,
             "face_quality": 18,
             "rating": 4,
+            "iso": 200,
+            "exposure_seconds": 1 / 60,
             "has_location": True,
             "is_favorite": True,
             "is_edited": False,
@@ -113,13 +119,14 @@ def test_processed_asset_upsert_populates_stage_tables(tmp_path):
     assert cur.fetchone() == (123.4, 120.0, 42.0, "abc123", 7)
 
     cur.execute(
-        "SELECT rating, face_count, face_quality, has_location, is_favorite, "
+        "SELECT rating, face_count, face_quality, iso, exposure_seconds, "
+        "has_location, is_favorite, "
         "is_edited, content_labels_json FROM semantic_analysis WHERE asset_id = ?",
         ("a1",),
     )
     semantic_row = cur.fetchone()
-    assert semantic_row[:6] == (4, 2, 18, 1, 1, 0)
-    assert json.loads(semantic_row[6]) == ["screenshot"]
+    assert semantic_row[:8] == (4, 2, 18, 200.0, 1 / 60, 1, 1, 0)
+    assert json.loads(semantic_row[8]) == ["screenshot"]
 
     cur.execute(
         "SELECT score, raw_score, components_json "
@@ -129,6 +136,16 @@ def test_processed_asset_upsert_populates_stage_tables(tmp_path):
     score_row = cur.fetchone()
     assert score_row[:2] == (77, 82)
     assert json.loads(score_row[2]) == {"blur": 10, "rating": 15}
+
+    technical = get_technical_analysis(conn, "a1")
+    semantic = get_semantic_analysis(conn, "a1")
+    score = get_asset_score(conn, "a1")
+    scoring_inputs = get_scoring_inputs(conn, "a1")
+    assert technical["phash"] == "abc123"
+    assert semantic["iso"] == 200.0
+    assert score["components"] == {"blur": 10, "rating": 15}
+    assert scoring_inputs["phash"] == "abc123"
+    assert scoring_inputs["iso"] == 200.0
 
 
 def test_album_mapping_upsert_and_get():

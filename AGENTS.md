@@ -37,9 +37,16 @@ separation of responsibilities:
 8. Diversity selection: choose a good collection, not just highest scores.
 9. Album generation: create or update Immich albums.
 
-Current state: `src/pipeline.py` provides the pipeline spine, but
-`src/album_generator.py` still contains several combined responsibilities. Keep
-future changes moving responsibilities out of `album_generator.py` and into
+Current state: `src/pipeline.py` provides the pipeline spine. Album-level work
+is coordinated by `src/album_generator.py`, while several stage responsibilities
+already live in dedicated modules:
+
+- `src/asset_discovery.py`
+- `src/technical_analysis.py`
+- `src/semantic_analysis.py`
+- `src/selection.py`
+
+Keep future changes moving responsibilities out of `album_generator.py` and into
 independent stages instead of adding more behavior there by default.
 
 Important design rule:

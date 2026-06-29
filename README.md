@@ -454,11 +454,19 @@ current implementation has an explicit pipeline spine in `src/pipeline.py`:
 3. Load album, content-filter, and scoring configuration
 4. Run the current album generation stage
 
-The current album generation stage still contains several responsibilities:
-candidate discovery, content-filter matching, image analysis, scoring,
-selection, and Immich album sync. Keeping that behavior behind a pipeline stage
-is intentional for now: it preserves the working service while giving future
-refactors a clear boundary.
+The current album generation stage now delegates several responsibilities to
+stage modules:
+
+- `src/asset_discovery.py`: rule-scoped Immich candidate discovery helpers
+- `src/technical_analysis.py`: objective image facts such as blur, brightness,
+  contrast, perceptual hash, and portrait quality
+- `src/semantic_analysis.py`: Immich/user facts, face metadata, location,
+  content-filter labels, and content-filter matching
+- `src/selection.py`: album asset selection from scored candidates
+
+`src/album_generator.py` still coordinates these stages for each album and
+performs Immich album sync. Future refactors should continue moving stage logic
+out of album generation while keeping behavior stable.
 
 The target architecture is to split those internals into independent stages:
 
