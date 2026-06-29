@@ -330,6 +330,28 @@ def test_score_or_reuse_asset_recalculates_cached_inputs_with_config(tmp_path):
     assert client.preview_calls == []
 
 
+def test_score_or_reuse_asset_force_rescore_ignores_cached_score(tmp_path):
+    """A manual full rescan should re-analyze even unchanged cached photos."""
+    conn = init_db(str(tmp_path / "test.db"))
+    upsert_processed_asset(conn, "a1", "checksum-1", 99, {}, None, {"score": 99})
+    client = FakeClient()
+
+    result = score_or_reuse_asset(
+        client,
+        conn,
+        {"id": "a1", "checksum": "checksum-1"},
+        str(tmp_path),
+        "http://immich.local",
+        force_rescore=True,
+    )
+
+    row = get_processed_asset(conn, "a1")
+    assert result == ("a1", row["score"])
+    assert client.preview_calls == ["a1"]
+    assert row["score"] != 99
+    assert "blur_variance" in row["score_details"]["inputs"]
+
+
 def test_score_or_reuse_asset_rescores_when_content_filter_state_changes(tmp_path):
     """Cached images must be rescored when new content labels alter the score."""
     conn = init_db(str(tmp_path / "test.db"))

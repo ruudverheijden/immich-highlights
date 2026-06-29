@@ -126,6 +126,7 @@ def score_or_reuse_asset(
     base_url: str,
     content_filter_matches: list[dict] | None = None,
     scoring_config=DEFAULT_SCORING_CONFIG,
+    force_rescore: bool = False,
 ):
     """Return `(asset_id, score)` by using the DB cache or scoring the preview."""
     asset_id = get_asset_id(asset)
@@ -142,7 +143,8 @@ def score_or_reuse_asset(
     cached = get_processed_asset(conn, asset_id)
     cached_state = cached_content_filter_state(cached) if cached else None
     if (
-        cached
+        not force_rescore
+        and cached
         and checksum
         and cached.get("checksum") == checksum
         and cached_state == (content_labels, content_penalty)
@@ -171,7 +173,12 @@ def score_or_reuse_asset(
             immich_asset_url(base_url, asset_id),
         )
         return asset_id, cached["score"]
-    if cached and checksum and cached.get("checksum") == checksum:
+    if force_rescore and cached:
+        logger.info(
+            "Force rescoring photo %s; ignoring cached score and analyzing preview",
+            asset_id,
+        )
+    if not force_rescore and cached and checksum and cached.get("checksum") == checksum:
         logger.info(
             "Rescoring photo %s because content filter state changed: " "old=%s new=%s",
             asset_id,
@@ -269,7 +276,7 @@ def content_filter_context_window(client, rule, content_filter):
             taken_after=taken_after.isoformat(),
             taken_before=taken_before.isoformat(),
         )
-        logger.info(
+        logger.debug(
             "Content filter '%s' context window for album '%s': "
             "takenAfter=%s, takenBefore=%s, pool=%s, required=%s",
             content_filter.label,
@@ -375,6 +382,7 @@ def generate_album_for_rule(
     base_url: str,
     content_filters=None,
     scoring_config=DEFAULT_SCORING_CONFIG,
+    force_rescore: bool = False,
 ):
     """Score a rule's Immich candidates and create or update its album."""
     logger.info(
@@ -420,6 +428,7 @@ def generate_album_for_rule(
             base_url,
             content_filter_matches=asset_content_matches,
             scoring_config=scoring_config,
+            force_rescore=force_rescore,
         )
         if result:
             scored.append(result)
@@ -464,6 +473,7 @@ def generate_albums(
     base_url: str,
     content_filters=None,
     scoring_config=DEFAULT_SCORING_CONFIG,
+    force_rescore: bool = False,
 ):
     """Generate all configured highlight albums."""
     results = []
@@ -478,6 +488,7 @@ def generate_albums(
                 base_url,
                 content_filters=content_filters,
                 scoring_config=scoring_config,
+                force_rescore=force_rescore,
             )
         except requests.RequestException:
             logger.exception("Immich API failed while generating '%s'", rule.name)

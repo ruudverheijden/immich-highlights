@@ -162,6 +162,24 @@ An image preview is downloaded and analyzed again only when the asset is new,
 the checksum changed, the content-filter labels changed, or the old database row
 does not contain enough scoring inputs to recalculate from cache.
 
+To force a full rescan of the current candidates, run the scorer with
+`--force-rescore`. This ignores cached asset scores and re-downloads/re-analyzes
+the previews for photos that are currently in the configured album windows. It
+keeps the local generated album mappings, so existing Immich highlight albums
+are updated instead of forgotten.
+
+With Docker Compose:
+
+```bash
+docker compose run --rm photo-scorer python scorer.py --force-rescore
+```
+
+For local development:
+
+```bash
+python src/scorer.py --force-rescore
+```
+
 ## Advanced Configuration Files
 
 The Docker image includes default config files inside the container:

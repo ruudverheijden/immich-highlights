@@ -1,37 +1,77 @@
+import argparse
 import logging
 import requests
 
-from config import (
-    IMMICH_API_URL,
-    IMMICH_API_KEY,
-    SCORER_DRY_RUN,
-    SCORER_DB_PATH,
-    SCORER_MAX_ASSETS,
-    TEMP_DIR,
-    LOG_LEVEL,
-    ALBUM_CONFIG_PATH,
-    CONTENT_FILTER_CONFIG_PATH,
-    SCORING_CONFIG_PATH,
-)
-from immich_client import ImmichClient
-from db import init_db
-from album_manager import AlbumManager
-from album_generator import generate_albums
-from album_rules import load_album_config
-from scoring_engine import load_scoring_config
+try:
+    from .config import (
+        IMMICH_API_URL,
+        IMMICH_API_KEY,
+        SCORER_DRY_RUN,
+        SCORER_DB_PATH,
+        SCORER_MAX_ASSETS,
+        TEMP_DIR,
+        LOG_LEVEL,
+        ALBUM_CONFIG_PATH,
+        CONTENT_FILTER_CONFIG_PATH,
+        SCORING_CONFIG_PATH,
+    )
+    from .immich_client import ImmichClient
+    from .db import init_db
+    from .album_manager import AlbumManager
+    from .album_generator import generate_albums
+    from .album_rules import load_album_config
+    from .scoring_engine import load_scoring_config
+except ImportError:
+    from config import (
+        IMMICH_API_URL,
+        IMMICH_API_KEY,
+        SCORER_DRY_RUN,
+        SCORER_DB_PATH,
+        SCORER_MAX_ASSETS,
+        TEMP_DIR,
+        LOG_LEVEL,
+        ALBUM_CONFIG_PATH,
+        CONTENT_FILTER_CONFIG_PATH,
+        SCORING_CONFIG_PATH,
+    )
+    from immich_client import ImmichClient
+    from db import init_db
+    from album_manager import AlbumManager
+    from album_generator import generate_albums
+    from album_rules import load_album_config
+    from scoring_engine import load_scoring_config
 
 
 logging.basicConfig(level=LOG_LEVEL)
 logger = logging.getLogger("scorer")
 
 
-def run_once():
+def parse_args(argv=None):
+    """Parse command-line options for one scorer run."""
+    parser = argparse.ArgumentParser(
+        allow_abbrev=False,
+        description="Generate Immich highlight albums from scored photo candidates.",
+    )
+    parser.add_argument(
+        "--force-rescore",
+        action="store_true",
+        help=(
+            "Ignore cached asset scores and re-download/re-analyze current "
+            "candidates. Generated album mappings are kept."
+        ),
+    )
+    return parser.parse_args(argv)
+
+
+def run_once(force_rescore: bool = False):
     """Generate rolling highlight albums from Immich search queries."""
     logger.info(
-        "Starting scorer run: immich_url=%s, dry_run=%s, max_assets=%s",
+        "Starting scorer run: immich_url=%s, dry_run=%s, max_assets=%s, "
+        "force_rescore=%s",
         IMMICH_API_URL,
         SCORER_DRY_RUN,
         SCORER_MAX_ASSETS,
+        force_rescore,
     )
     conn = init_db(SCORER_DB_PATH)
     client = ImmichClient(
@@ -93,6 +133,7 @@ def run_once():
             IMMICH_API_URL,
             content_filters=content_filters,
             scoring_config=scoring_config,
+            force_rescore=force_rescore,
         )
     except requests.RequestException as e:
         logger.error(
@@ -104,4 +145,5 @@ def run_once():
 
 
 if __name__ == "__main__":
-    run_once()
+    args = parse_args()
+    run_once(force_rescore=args.force_rescore)
