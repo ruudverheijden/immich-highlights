@@ -121,9 +121,10 @@ duplicate_detection_enabled = true
 # Lower values are stricter:
 #   0 = only identical perceptual hashes
 #   4 = very similar images
-#   6 = practical default for bursts/near-identical edits
-#   8+ = more aggressive and may group photos that are merely similar
-duplicate_phash_distance_threshold = 6
+#   6 = conservative default for near-identical edits
+#   10 = practical default when you want more burst/near-duplicate cleanup
+#   12+ = more aggressive and may group photos that are merely similar
+duplicate_phash_distance_threshold = 10
 
 # Enable extra burst-style duplicate detection. This never groups on timestamp
 # alone: photos must be close in time AND still visually similar by pHash.
@@ -132,9 +133,9 @@ timestamp_duplicate_detection_enabled = true
 # Maximum seconds between two photos before timestamp-confirmed grouping can
 # consider them. Keep this small to avoid grouping different photos from the
 # same event.
-timestamp_duplicate_window_seconds = 2
+timestamp_duplicate_window_seconds = 5
 
 # pHash threshold used only when photos are also close in time. This can be a
 # little looser than duplicate_phash_distance_threshold because the timestamp
 # adds extra confidence. If false positives appear, lower this first.
-timestamp_duplicate_phash_threshold = 10
+timestamp_duplicate_phash_threshold = 14

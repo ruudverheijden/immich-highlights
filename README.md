@@ -388,10 +388,10 @@ content_filter_min_penalty = -50
 
 [duplicate_detection]
 duplicate_detection_enabled = true
-duplicate_phash_distance_threshold = 6
+duplicate_phash_distance_threshold = 10
 timestamp_duplicate_detection_enabled = true
-timestamp_duplicate_window_seconds = 2
-timestamp_duplicate_phash_threshold = 10
+timestamp_duplicate_window_seconds = 5
+timestamp_duplicate_phash_threshold = 14
 ```
 
 Numeric fields must be numbers, and `duplicate_detection_enabled` must be a

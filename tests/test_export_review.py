@@ -10,6 +10,7 @@ from src.db import (
 from src.export_review import (
     attach_album_memberships,
     attach_duplicate_memberships,
+    attach_pipeline_statuses,
     content_filter_labels,
     duplicate_roles,
     download_thumbnail,
@@ -19,6 +20,7 @@ from src.export_review import (
     immich_thumbnail_url,
     load_album_memberships,
     load_duplicate_memberships,
+    load_filter_memberships,
     load_pipeline_summaries,
     load_processed_assets,
     PLACEHOLDER_THUMBNAIL,
@@ -206,6 +208,11 @@ def test_write_review_html_exports_scoring_details(tmp_path):
     assert "data-duplicate-roles=" in html
     assert "&quot;suppressed&quot;" in html
     assert "phash_distance&lt;=6" in html
+    assert "Pipeline status" in html
+    assert "Candidate: yes" in html
+    assert "Filter: accepted: accepted_timeline_image_candidate" in html
+    assert "Duplicate: suppressed d=3" in html
+    assert "Selection: selected" in html
 
 
 def test_load_pipeline_summaries_counts_stage_outputs(tmp_path):
@@ -456,3 +463,49 @@ def test_load_and_attach_duplicate_memberships(tmp_path):
     assert duplicate_roles(assets[0]) == ["representative"]
     assert duplicate_roles(assets[1]) == ["suppressed"]
     assert duplicate_roles(assets[2]) == []
+
+
+def test_attach_pipeline_statuses_explains_selection_per_album(tmp_path):
+    """Per-card status should explain candidate, filter, duplicate, and selection."""
+    db_path = tmp_path / "scorer.db"
+    conn = init_db(str(db_path))
+    upsert_processed_asset(conn, "a1", "c1", 90, {}, None, {"score": 90})
+    upsert_processed_asset(conn, "a2", "c2", 80, {}, None, {"score": 80})
+    upsert_asset_filter_result(
+        conn,
+        "a1",
+        "last-week",
+        included=True,
+        reason="accepted_timeline_image_candidate",
+    )
+    conn.commit()
+    conn.close()
+
+    filters = load_filter_memberships(str(db_path))
+    assets = [
+        {
+            "asset_id": "a1",
+            "albums": [{"name": "Highlights: Last Week", "bucket": "last-week"}],
+            "duplicates": [],
+        },
+        {"asset_id": "a2", "albums": [], "duplicates": []},
+    ]
+
+    attach_pipeline_statuses(
+        assets,
+        [{"name": "Highlights: Last Week", "bucket": "last-week"}],
+        filters,
+    )
+
+    assert assets[0]["pipeline_statuses"] == [
+        {
+            "album": "Highlights: Last Week",
+            "bucket": "last-week",
+            "candidate": "yes",
+            "filter": "accepted: accepted_timeline_image_candidate",
+            "duplicate": "not duplicate",
+            "selection": "selected",
+        }
+    ]
+    assert assets[1]["pipeline_statuses"][0]["filter"] == "no candidate record"
+    assert assets[1]["pipeline_statuses"][0]["selection"] == "not selected"

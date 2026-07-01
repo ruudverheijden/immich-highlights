@@ -229,6 +229,28 @@ def load_duplicate_memberships(db_path: str) -> dict[str, list[dict]]:
     return memberships
 
 
+def load_filter_memberships(db_path: str) -> dict[str, list[dict]]:
+    """Read per-album filtering decisions and index them by asset id."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT asset_id, album_bucket, included, reason " "FROM asset_filter_results"
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    memberships = {}
+    for asset_id, bucket, included, reason in rows:
+        memberships.setdefault(asset_id, []).append(
+            {
+                "bucket": bucket,
+                "included": bool(included),
+                "reason": reason,
+            }
+        )
+    return memberships
+
+
 def query_single_value(cur, sql: str, params=(), default=0):
     """Return one scalar query value with a safe default."""
     cur.execute(sql, params)
@@ -538,6 +560,70 @@ def attach_duplicate_memberships(
         asset["duplicates"] = memberships.get(asset["asset_id"], [])
 
 
+def attach_pipeline_statuses(
+    assets: list[dict],
+    albums: list[dict],
+    filter_memberships: dict[str, list[dict]],
+):
+    """Attach per-album pipeline status rows to each scored asset."""
+    album_names = {album["bucket"]: album["name"] for album in albums}
+    for asset in assets:
+        album_buckets = {album["bucket"] for album in asset.get("albums", [])}
+        duplicate_buckets = {
+            duplicate["bucket"] for duplicate in asset.get("duplicates", [])
+        }
+        filter_by_bucket = {
+            item["bucket"]: item
+            for item in filter_memberships.get(asset["asset_id"], [])
+        }
+        buckets = sorted(album_buckets | duplicate_buckets | set(filter_by_bucket))
+        statuses = []
+        for bucket in buckets:
+            filter_row = filter_by_bucket.get(bucket)
+            duplicate_rows = [
+                duplicate
+                for duplicate in asset.get("duplicates", [])
+                if duplicate.get("bucket") == bucket
+            ]
+            duplicate_text = "not duplicate"
+            if duplicate_rows:
+                duplicate_text = ", ".join(
+                    f"{row['role']} d={row['distance']}" for row in duplicate_rows
+                )
+            if filter_row:
+                filter_text = (
+                    f"accepted: {filter_row['reason']}"
+                    if filter_row["included"]
+                    else f"rejected: {filter_row['reason']}"
+                )
+            else:
+                filter_text = "no candidate record"
+            statuses.append(
+                {
+                    "album": album_names.get(bucket, bucket),
+                    "bucket": bucket,
+                    "candidate": "yes" if filter_row else "no",
+                    "filter": filter_text,
+                    "duplicate": duplicate_text,
+                    "selection": (
+                        "selected" if bucket in album_buckets else "not selected"
+                    ),
+                }
+            )
+        if not statuses:
+            statuses.append(
+                {
+                    "album": "Current albums",
+                    "bucket": "",
+                    "candidate": "no",
+                    "filter": "no candidate record",
+                    "duplicate": "not duplicate",
+                    "selection": "not selected",
+                }
+            )
+        asset["pipeline_statuses"] = statuses
+
+
 def format_value(value) -> str:
     """Format scalar values compactly for the report."""
     if isinstance(value, float):
@@ -639,6 +725,32 @@ def render_duplicate_badges(asset: dict) -> str:
     """
 
 
+def render_pipeline_status(asset: dict) -> str:
+    """Render per-album pipeline status rows for one asset card."""
+    rows = []
+    for status in asset.get("pipeline_statuses", []):
+        album = html.escape(str(status.get("album", "Album")))
+        candidate = html.escape(str(status.get("candidate", "unknown")))
+        filter_text = html.escape(str(status.get("filter", "unknown")))
+        duplicate = html.escape(str(status.get("duplicate", "unknown")))
+        selection = html.escape(str(status.get("selection", "unknown")))
+        rows.append(
+            "<div class='pipeline-status-row'>"
+            f"<strong>{album}</strong>"
+            f"<span>Candidate: {candidate}</span>"
+            f"<span>Filter: {filter_text}</span>"
+            f"<span>Duplicate: {duplicate}</span>"
+            f"<span>Selection: {selection}</span>"
+            "</div>"
+        )
+    return f"""
+      <details class="pipeline-status" open>
+        <summary>Pipeline status</summary>
+        {''.join(rows)}
+      </details>
+    """
+
+
 def render_asset_card(asset: dict, immich_url: str) -> str:
     """Render one scored asset review card."""
     asset_id = asset["asset_id"]
@@ -668,6 +780,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
         album_badges = "<span>Not in generated album</span>"
     content_filter_badges = render_content_filter_badges(inputs)
     duplicate_badges = render_duplicate_badges(asset)
+    pipeline_status = render_pipeline_status(asset)
     escaped_datetime = html.escape(
         str(asset.get("photo_datetime") or "Unknown datetime")
     )
@@ -704,6 +817,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
       </div>
       {content_filter_badges}
       {duplicate_badges}
+      {pipeline_status}
 
       <section class="labels">
         <label>
@@ -1043,6 +1157,34 @@ def render_review_html(
       color: #5d3fd3;
       padding: 4px 8px;
     }}
+    .pipeline-status {{
+      border: 1px solid #edf0f5;
+      border-radius: 6px;
+      padding: 10px;
+      margin-top: 12px;
+      background: #fbfcfe;
+    }}
+    .pipeline-status summary {{
+      margin-bottom: 8px;
+    }}
+    .pipeline-status-row {{
+      display: grid;
+      gap: 4px;
+      padding: 8px 0;
+      border-top: 1px solid #edf0f5;
+      font-size: 12px;
+    }}
+    .pipeline-status-row:first-of-type {{
+      border-top: 0;
+      padding-top: 0;
+    }}
+    .pipeline-status-row strong {{
+      font-size: 13px;
+    }}
+    .pipeline-status-row span {{
+      color: #4c586c;
+      overflow-wrap: anywhere;
+    }}
     .labels {{
       display: grid;
       gap: 10px;
@@ -1135,6 +1277,16 @@ def render_review_html(
       .duplicate-status span {{
         background: #27213d;
         color: #b9a8ff;
+      }}
+      .pipeline-status {{
+        background: #121824;
+        border-color: #2a3344;
+      }}
+      .pipeline-status-row {{
+        border-color: #2a3344;
+      }}
+      .pipeline-status-row span {{
+        color: #a8b3c6;
       }}
       select,
       button {{
@@ -1481,9 +1633,11 @@ def write_review_html(
     assets = load_processed_assets(db_path, limit=limit)
     albums, memberships = load_album_memberships(db_path)
     duplicate_memberships = load_duplicate_memberships(db_path)
+    filter_memberships = load_filter_memberships(db_path)
     pipeline_summaries = load_pipeline_summaries(db_path, albums)
     attach_album_memberships(assets, memberships)
     attach_duplicate_memberships(assets, duplicate_memberships)
+    attach_pipeline_statuses(assets, albums, filter_memberships)
     if download_thumbnails:
         attach_local_thumbnails(
             assets,
