@@ -37,17 +37,21 @@ separation of responsibilities:
 8. Diversity selection: choose a good collection, not just highest scores.
 9. Album generation: create or update Immich albums.
 
-Current state: `src/pipeline.py` provides the pipeline spine. Album-level work
-is coordinated by `src/album_generator.py`, while several stage responsibilities
-already live in dedicated modules:
+Current state: `src/pipeline.py` provides the pipeline spine.
+`src/curation.py` coordinates candidate selection for each album rule, while
+`src/album_generator.py` is the final sync stage that creates or updates Immich
+albums from selected asset IDs. Several stage responsibilities already live in
+dedicated modules:
 
 - `src/asset_discovery.py`
+- `src/filtering.py`
 - `src/technical_analysis.py`
 - `src/semantic_analysis.py`
 - `src/selection.py`
 
-Keep future changes moving responsibilities out of `album_generator.py` and into
-independent stages instead of adding more behavior there by default.
+Keep future changes moving reusable work out of coordinators and into
+independent stages instead of adding more behavior to `album_generator.py` by
+default.
 
 Important design rule:
 
@@ -66,6 +70,7 @@ pipeline is fully migrated.
 Stage tables:
 
 - `assets`: Immich-sourced metadata from discovery.
+- `asset_filter_results`: per-album filtering decisions and reasons.
 - `technical_analysis`: objective image facts such as blur, brightness,
   contrast, perceptual hash, and portrait quality.
 - `semantic_analysis`: user/semantic facts such as rating, faces, location,

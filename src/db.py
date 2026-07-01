@@ -60,6 +60,21 @@ CREATE TABLE IF NOT EXISTS semantic_analysis (
     FOREIGN KEY(asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS asset_filter_results (
+    -- Per-album filtering decisions made before analysis and scoring.
+    asset_id TEXT,
+    album_bucket TEXT,
+    included INTEGER,
+    reason TEXT,
+    details_json TEXT,
+    filtered_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (asset_id, album_bucket),
+    FOREIGN KEY(asset_id) REFERENCES assets(asset_id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_asset_filter_results_album_included
+ON asset_filter_results(album_bucket, included);
+
 CREATE TABLE IF NOT EXISTS asset_scores (
     -- Explainable score output for a specific scoring context.
     asset_id TEXT,
@@ -261,6 +276,54 @@ def upsert_asset_score(conn, asset_id, score_details, album_bucket="global"):
             json.dumps(score_details.get("components", {})),
         ),
     )
+
+
+def upsert_asset_filter_result(
+    conn,
+    asset_id,
+    album_bucket,
+    included,
+    reason,
+    details=None,
+):
+    """Store one filtering-stage decision for an album candidate."""
+    cur = conn.cursor()
+    cur.execute(
+        "INSERT INTO asset_filter_results "
+        "(asset_id, album_bucket, included, reason, details_json, filtered_at) "
+        "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
+        "ON CONFLICT(asset_id, album_bucket) DO UPDATE SET "
+        "included=excluded.included, "
+        "reason=excluded.reason, "
+        "details_json=excluded.details_json, "
+        "filtered_at=CURRENT_TIMESTAMP",
+        (
+            asset_id,
+            album_bucket,
+            int(bool(included)),
+            reason,
+            json.dumps(details or {}),
+        ),
+    )
+
+
+def get_asset_filter_result(conn, asset_id, album_bucket):
+    """Fetch the filtering-stage decision for one asset/album context."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT included, reason, details_json, filtered_at "
+        "FROM asset_filter_results WHERE asset_id = ? AND album_bucket = ?",
+        (asset_id, album_bucket),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        "included": bool(row[0]),
+        "reason": row[1],
+        "details": json.loads(row[2] or "{}"),
+        "filtered_at": row[3],
+    }
 
 
 def get_technical_analysis(conn, asset_id):

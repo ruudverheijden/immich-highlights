@@ -2,6 +2,7 @@ import os
 import tempfile
 import json
 from src.db import (
+    get_asset_filter_result,
     get_asset_score,
     get_album_mapping,
     get_processed_asset,
@@ -9,6 +10,7 @@ from src.db import (
     get_semantic_analysis,
     get_technical_analysis,
     init_db,
+    upsert_asset_filter_result,
     upsert_album_mapping,
     upsert_processed_asset,
 )
@@ -60,11 +62,33 @@ def test_init_db_creates_pipeline_stage_tables(tmp_path):
         "assets",
         "technical_analysis",
         "semantic_analysis",
+        "asset_filter_results",
         "asset_scores",
         "duplicate_groups",
         "duplicate_group_members",
     }.issubset(table_names(conn))
     assert "inputs_json" not in column_names(conn, "asset_scores")
+
+
+def test_asset_filter_result_upsert_and_get(tmp_path):
+    """Filtering decisions should be queryable per album bucket."""
+    conn = init_db(str(tmp_path / "test.db"))
+    upsert_processed_asset(conn, "a1", "checksum-1", 88, {}, None, {"score": 88})
+
+    upsert_asset_filter_result(
+        conn,
+        "a1",
+        "last-week",
+        included=True,
+        reason="accepted_timeline_image_candidate",
+        details={"album_name": "Highlights: Last Week"},
+    )
+    conn.commit()
+
+    row = get_asset_filter_result(conn, "a1", "last-week")
+    assert row["included"] is True
+    assert row["reason"] == "accepted_timeline_image_candidate"
+    assert row["details"] == {"album_name": "Highlights: Last Week"}
 
 
 def test_processed_asset_upsert_populates_stage_tables(tmp_path):

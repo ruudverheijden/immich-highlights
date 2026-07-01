@@ -6,6 +6,7 @@ from src.album_generator import (
     content_filter_state,
     generate_album_for_rule,
     score_or_reuse_asset,
+    sync_album_for_rule,
 )
 from src.album_rules import AlbumRule, ContentFilter
 from src.db import get_processed_asset, init_db, upsert_processed_asset
@@ -162,6 +163,28 @@ def test_generate_album_for_rule_queries_immich_then_selects_top_cached_asset(tm
         {
             "name": "Highlights: Last Week",
             "asset_ids": ["a2"],
+            "description": "Auto-generated highlights",
+            "bucket": "last-week",
+        }
+    ]
+
+
+def test_sync_album_for_rule_only_updates_immich_album():
+    """The final album stage should consume selected ids without scoring."""
+    album_manager = FakeAlbumManager()
+
+    result = sync_album_for_rule(
+        album_manager,
+        make_rule(),
+        ["a2", "a1"],
+        "http://immich.local",
+    )
+
+    assert result["id"] == "album-1"
+    assert album_manager.calls == [
+        {
+            "name": "Highlights: Last Week",
+            "asset_ids": ["a2", "a1"],
             "description": "Auto-generated highlights",
             "bucket": "last-week",
         }

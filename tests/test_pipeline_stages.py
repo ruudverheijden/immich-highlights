@@ -1,4 +1,6 @@
 from src.asset_discovery import get_asset_checksum, get_asset_id, iter_rule_assets
+from src.db import get_asset_filter_result, init_db, upsert_processed_asset
+from src.filtering import filter_album_candidates
 from src.selection import select_top_scored_assets
 
 
@@ -16,6 +18,8 @@ class FakeClient:
 class FakeRule:
     """Minimal album rule shape used by discovery-stage tests."""
 
+    name = "Highlights: Test"
+    bucket = "test"
     max_candidates = 25
 
     def taken_after_iso(self):
@@ -59,3 +63,20 @@ def test_select_top_scored_assets_returns_highest_scores_first():
     )
 
     assert selected == ["high", "mid"]
+
+
+def test_filter_album_candidates_records_included_decisions(tmp_path):
+    """Filtering should keep accepted candidates visible in the database."""
+    conn = init_db(str(tmp_path / "test.db"))
+    upsert_processed_asset(conn, "a1", "checksum-1", 80, {}, None, {"score": 80})
+
+    included = filter_album_candidates(
+        conn,
+        FakeRule(),
+        [{"id": "a1", "checksum": "checksum-1"}, {"checksum": "missing-id"}],
+    )
+
+    assert included == [{"id": "a1", "checksum": "checksum-1"}]
+    row = get_asset_filter_result(conn, "a1", "test")
+    assert row["included"] is True
+    assert row["reason"] == "accepted_timeline_image_candidate"
