@@ -1,16 +1,25 @@
 """Tests for the development HTML review export."""
 
-from src.db import init_db, upsert_processed_asset
-from src.db import upsert_album_mapping
+from src.db import (
+    init_db,
+    replace_duplicate_groups,
+    upsert_album_mapping,
+    upsert_asset_filter_result,
+    upsert_processed_asset,
+)
 from src.export_review import (
     attach_album_memberships,
+    attach_duplicate_memberships,
     content_filter_labels,
+    duplicate_roles,
     download_thumbnail,
     first_photo_datetime,
     format_datetime,
     immich_asset_url,
     immich_thumbnail_url,
     load_album_memberships,
+    load_duplicate_memberships,
+    load_pipeline_summaries,
     load_processed_assets,
     PLACEHOLDER_THUMBNAIL,
     render_content_filter_options,
@@ -111,12 +120,35 @@ def test_write_review_html_exports_scoring_details(tmp_path):
             },
         },
     )
+    upsert_processed_asset(conn, "asset-2", "checksum-2", 70, {}, None, {"score": 70})
     upsert_album_mapping(
         conn,
         "last-week",
         "album-1",
         "Highlights: Last Week",
         ["asset-1"],
+    )
+    upsert_asset_filter_result(
+        conn,
+        "asset-1",
+        "last-week",
+        included=True,
+        reason="accepted_timeline_image_candidate",
+    )
+    replace_duplicate_groups(
+        conn,
+        "last-week",
+        [
+            {
+                "group_id": "last-week:phash:1:asset-1",
+                "representative_asset_id": "asset-2",
+                "reason": "phash_distance<=6",
+                "members": [
+                    {"asset_id": "asset-2", "distance": 0},
+                    {"asset_id": "asset-1", "distance": 3},
+                ],
+            }
+        ],
     )
     conn.close()
 
@@ -165,6 +197,107 @@ def test_write_review_html_exports_scoring_details(tmp_path):
     assert '<option value="screenshot">screenshot</option>' in html
     assert '<option value="none">No content label</option>' in html
     assert "localStorage" in html
+    assert "Pipeline Summary" in html
+    assert "pipelineSummaries" in html
+    assert "Asset Discovery" in html
+    assert "Duplicate Detection" in html
+    assert 'id="duplicate-filter"' in html
+    assert '<option value="suppressed">Suppressed duplicates</option>' in html
+    assert "data-duplicate-roles=" in html
+    assert "&quot;suppressed&quot;" in html
+    assert "phash_distance&lt;=6" in html
+
+
+def test_load_pipeline_summaries_counts_stage_outputs(tmp_path):
+    """Pipeline summaries should expose per-stage counts for each album."""
+    db_path = tmp_path / "scorer.db"
+    conn = init_db(str(db_path))
+    score_details = {
+        "score": 87,
+        "components": {"rating": 30},
+        "inputs": {
+            "blur_variance": 250,
+            "brightness": 120,
+            "hist_std": 40,
+            "phash": "0000",
+            "dimensions": [400, 300],
+            "face_count": 1,
+            "face_quality": 10,
+            "rating": 5,
+            "iso": 100,
+            "exposure_seconds": None,
+            "has_location": True,
+            "is_favorite": False,
+            "is_edited": False,
+            "content_labels": ["screenshot"],
+            "content_filter_matches": [{"label": "screenshot", "rank": 1}],
+        },
+    }
+    upsert_processed_asset(conn, "asset-1", "checksum-1", 87, {}, 5, score_details)
+    upsert_processed_asset(
+        conn,
+        "asset-2",
+        "checksum-2",
+        65,
+        {},
+        None,
+        {
+            **score_details,
+            "score": 65,
+            "inputs": {**score_details["inputs"], "phash": "0001"},
+        },
+    )
+    upsert_asset_filter_result(
+        conn,
+        "asset-1",
+        "last-week",
+        included=True,
+        reason="accepted_timeline_image_candidate",
+    )
+    upsert_asset_filter_result(
+        conn,
+        "asset-2",
+        "last-week",
+        included=False,
+        reason="too_small",
+    )
+    upsert_album_mapping(
+        conn,
+        "last-week",
+        "album-1",
+        "Highlights: Last Week",
+        ["asset-1"],
+    )
+    replace_duplicate_groups(
+        conn,
+        "last-week",
+        [
+            {
+                "group_id": "last-week:phash:1:asset-1",
+                "representative_asset_id": "asset-1",
+                "reason": "phash_distance<=6",
+                "members": [
+                    {"asset_id": "asset-1", "distance": 0},
+                    {"asset_id": "asset-2", "distance": 1},
+                ],
+            }
+        ],
+    )
+    conn.close()
+
+    albums, _memberships = load_album_memberships(str(db_path))
+    summaries = load_pipeline_summaries(str(db_path), albums)
+    last_week = summaries["last-week"]
+    stages = {stage["title"]: stage for stage in last_week["stages"]}
+
+    assert stages["Asset Discovery"]["metrics"]["Candidates found"] == 2
+    assert stages["Filtering"]["metrics"] == {"Accepted": 1, "Rejected": 1}
+    assert stages["Filtering"]["details"]["too_small"] == 1
+    assert stages["Technical Analysis"]["metrics"]["With pHash"] == 2
+    assert stages["Semantic Analysis"]["metrics"]["With faces"] == 2
+    assert stages["Content Filters"]["metrics"]["Matched assets"] == 2
+    assert stages["Duplicate Detection"]["metrics"] == {"Groups": 1, "Suppressed": 1}
+    assert stages["Album Selection"]["metrics"]["Selected"] == 1
 
 
 def test_content_filter_options_are_deduplicated_and_sorted():
@@ -291,3 +424,35 @@ def test_attach_album_memberships_marks_assets_without_albums():
         },
         {"asset_id": "a2", "albums": []},
     ]
+
+
+def test_load_and_attach_duplicate_memberships(tmp_path):
+    """Review cards should know whether they are duplicate representatives."""
+    db_path = tmp_path / "scorer.db"
+    conn = init_db(str(db_path))
+    upsert_processed_asset(conn, "a1", "c1", 90, {}, None, {"score": 90})
+    upsert_processed_asset(conn, "a2", "c2", 80, {}, None, {"score": 80})
+    replace_duplicate_groups(
+        conn,
+        "last-week",
+        [
+            {
+                "group_id": "last-week:phash:1:a1",
+                "representative_asset_id": "a1",
+                "reason": "phash_distance<=6",
+                "members": [
+                    {"asset_id": "a1", "distance": 0},
+                    {"asset_id": "a2", "distance": 2},
+                ],
+            }
+        ],
+    )
+    conn.close()
+
+    memberships = load_duplicate_memberships(str(db_path))
+    assets = [{"asset_id": "a1"}, {"asset_id": "a2"}, {"asset_id": "a3"}]
+    attach_duplicate_memberships(assets, memberships)
+
+    assert duplicate_roles(assets[0]) == ["representative"]
+    assert duplicate_roles(assets[1]) == ["suppressed"]
+    assert duplicate_roles(assets[2]) == []

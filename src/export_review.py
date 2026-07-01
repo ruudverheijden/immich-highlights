@@ -200,10 +200,342 @@ def load_album_memberships(db_path: str) -> tuple[list[dict], dict[str, list[dic
     return albums, by_asset_id
 
 
+def load_duplicate_memberships(db_path: str) -> dict[str, list[dict]]:
+    """Read duplicate-group memberships and index them by asset id."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT g.album_bucket, g.representative_asset_id, g.reason, "
+        "m.asset_id, m.distance "
+        "FROM duplicate_groups g "
+        "JOIN duplicate_group_members m ON g.group_id = m.group_id"
+    )
+    rows = cur.fetchall()
+    conn.close()
+
+    memberships = {}
+    for bucket, representative_id, reason, asset_id, distance in rows:
+        memberships.setdefault(asset_id, []).append(
+            {
+                "bucket": bucket,
+                "role": (
+                    "representative" if asset_id == representative_id else "suppressed"
+                ),
+                "reason": reason,
+                "distance": distance,
+                "representative_asset_id": representative_id,
+            }
+        )
+    return memberships
+
+
+def query_single_value(cur, sql: str, params=(), default=0):
+    """Return one scalar query value with a safe default."""
+    cur.execute(sql, params)
+    row = cur.fetchone()
+    if not row or row[0] is None:
+        return default
+    return row[0]
+
+
+def placeholders(values: list[str]) -> str:
+    """Return SQLite placeholders for a non-empty list."""
+    return ",".join("?" for _value in values)
+
+
+def unique_asset_ids_for_bucket(cur, bucket: str | None) -> list[str]:
+    """Return candidate asset ids for one album bucket or all buckets."""
+    if bucket is None:
+        cur.execute("SELECT DISTINCT asset_id FROM asset_filter_results")
+    else:
+        cur.execute(
+            "SELECT DISTINCT asset_id FROM asset_filter_results WHERE album_bucket = ?",
+            (bucket,),
+        )
+    return [row[0] for row in cur.fetchall()]
+
+
+def count_for_assets(
+    cur, table_name: str, asset_ids: list[str], where: str = ""
+) -> int:
+    """Count rows in a stage table for a known asset set."""
+    if not asset_ids:
+        return 0
+    sql = (
+        f"SELECT COUNT(*) FROM {table_name} "
+        f"WHERE asset_id IN ({placeholders(asset_ids)})"
+    )
+    if where:
+        sql += f" AND {where}"
+    return query_single_value(cur, sql, asset_ids)
+
+
+def score_stats_for_assets(cur, asset_ids: list[str]) -> dict:
+    """Return score count and range for a known asset set."""
+    if not asset_ids:
+        return {"count": 0, "average": 0, "highest": 0, "lowest": 0}
+    cur.execute(
+        "SELECT COUNT(*), AVG(score), MAX(score), MIN(score) "
+        "FROM processed_assets "
+        f"WHERE asset_id IN ({placeholders(asset_ids)})",
+        asset_ids,
+    )
+    count, average, highest, lowest = cur.fetchone()
+    return {
+        "count": count or 0,
+        "average": round(average or 0, 1),
+        "highest": highest or 0,
+        "lowest": lowest or 0,
+    }
+
+
+def content_label_counts(cur, asset_ids: list[str]) -> dict[str, int]:
+    """Count content-filter labels from semantic analysis for a known asset set."""
+    if not asset_ids:
+        return {}
+    cur.execute(
+        "SELECT content_labels_json FROM semantic_analysis "
+        f"WHERE asset_id IN ({placeholders(asset_ids)})",
+        asset_ids,
+    )
+    counts = {}
+    for (labels_json,) in cur.fetchall():
+        labels = parse_json(labels_json, [])
+        if not isinstance(labels, list):
+            continue
+        for label in labels:
+            counts[str(label)] = counts.get(str(label), 0) + 1
+    return dict(sorted(counts.items()))
+
+
+def content_labeled_asset_count(cur, asset_ids: list[str]) -> int:
+    """Count assets that have at least one content-filter label."""
+    if not asset_ids:
+        return 0
+    cur.execute(
+        "SELECT content_labels_json FROM semantic_analysis "
+        f"WHERE asset_id IN ({placeholders(asset_ids)})",
+        asset_ids,
+    )
+    count = 0
+    for (labels_json,) in cur.fetchall():
+        labels = parse_json(labels_json, [])
+        if isinstance(labels, list) and labels:
+            count += 1
+    return count
+
+
+def filter_reason_counts(cur, bucket: str | None) -> dict[str, int]:
+    """Count filtering reasons for one album bucket or all buckets."""
+    if bucket is None:
+        cur.execute("SELECT reason, COUNT(*) FROM asset_filter_results GROUP BY reason")
+    else:
+        cur.execute(
+            "SELECT reason, COUNT(*) FROM asset_filter_results "
+            "WHERE album_bucket = ? GROUP BY reason",
+            (bucket,),
+        )
+    return {str(reason): count for reason, count in cur.fetchall()}
+
+
+def duplicate_stats(cur, bucket: str | None) -> dict:
+    """Count duplicate groups and suppressed members."""
+    if bucket is None:
+        cur.execute("SELECT group_id, reason FROM duplicate_groups")
+    else:
+        cur.execute(
+            "SELECT group_id, reason FROM duplicate_groups WHERE album_bucket = ?",
+            (bucket,),
+        )
+    groups = cur.fetchall()
+    if not groups:
+        return {"groups": 0, "suppressed": 0, "reasons": {}}
+
+    group_ids = [group_id for group_id, _reason in groups]
+    cur.execute(
+        "SELECT group_id, COUNT(*) FROM duplicate_group_members "
+        f"WHERE group_id IN ({placeholders(group_ids)}) GROUP BY group_id",
+        group_ids,
+    )
+    member_counts = {group_id: count for group_id, count in cur.fetchall()}
+    reasons = {}
+    for _group_id, reason in groups:
+        reasons[str(reason)] = reasons.get(str(reason), 0) + 1
+    return {
+        "groups": len(groups),
+        "suppressed": sum(
+            max(0, member_counts.get(group_id, 0) - 1) for group_id in group_ids
+        ),
+        "reasons": dict(sorted(reasons.items())),
+    }
+
+
+def selected_asset_count(albums: list[dict], bucket: str | None) -> int:
+    """Count selected/generated album assets for one bucket or all buckets."""
+    if bucket is None:
+        return sum(len(album.get("asset_ids", [])) for album in albums)
+    for album in albums:
+        if album.get("bucket") == bucket:
+            return len(album.get("asset_ids", []))
+    return 0
+
+
+def build_pipeline_summary_for_bucket(
+    cur,
+    albums: list[dict],
+    bucket: str | None,
+    label: str,
+) -> dict:
+    """Build summary cards for one album bucket or the aggregate view."""
+    asset_ids = unique_asset_ids_for_bucket(cur, bucket)
+    candidate_count = (
+        query_single_value(cur, "SELECT COUNT(*) FROM asset_filter_results")
+        if bucket is None
+        else query_single_value(
+            cur,
+            "SELECT COUNT(*) FROM asset_filter_results WHERE album_bucket = ?",
+            (bucket,),
+        )
+    )
+    accepted_count = (
+        query_single_value(
+            cur,
+            "SELECT COUNT(*) FROM asset_filter_results WHERE included = 1",
+        )
+        if bucket is None
+        else query_single_value(
+            cur,
+            "SELECT COUNT(*) FROM asset_filter_results "
+            "WHERE album_bucket = ? AND included = 1",
+            (bucket,),
+        )
+    )
+    rejected_count = candidate_count - accepted_count
+    technical_count = count_for_assets(cur, "technical_analysis", asset_ids)
+    semantic_count = count_for_assets(cur, "semantic_analysis", asset_ids)
+    scores = score_stats_for_assets(cur, asset_ids)
+    labels = content_label_counts(cur, asset_ids)
+    labeled_asset_count = content_labeled_asset_count(cur, asset_ids)
+    duplicates = duplicate_stats(cur, bucket)
+
+    stages = [
+        {
+            "title": "Asset Discovery",
+            "metrics": {
+                "Candidates found": candidate_count,
+                "Unique assets": len(asset_ids),
+            },
+        },
+        {
+            "title": "Filtering",
+            "metrics": {
+                "Accepted": accepted_count,
+                "Rejected": rejected_count,
+            },
+            "details": filter_reason_counts(cur, bucket),
+        },
+        {
+            "title": "Technical Analysis",
+            "metrics": {
+                "Analyzed": technical_count,
+                "With pHash": count_for_assets(
+                    cur,
+                    "technical_analysis",
+                    asset_ids,
+                    "phash IS NOT NULL AND phash != ''",
+                ),
+            },
+        },
+        {
+            "title": "Semantic Analysis",
+            "metrics": {
+                "Analyzed": semantic_count,
+                "With faces": count_for_assets(
+                    cur,
+                    "semantic_analysis",
+                    asset_ids,
+                    "face_count > 0",
+                ),
+                "With location": count_for_assets(
+                    cur,
+                    "semantic_analysis",
+                    asset_ids,
+                    "has_location = 1",
+                ),
+                "With rating": count_for_assets(
+                    cur,
+                    "semantic_analysis",
+                    asset_ids,
+                    "rating IS NOT NULL",
+                ),
+            },
+        },
+        {
+            "title": "Content Filters",
+            "metrics": {
+                "Matched assets": labeled_asset_count,
+                "Label hits": sum(labels.values()),
+            },
+            "details": labels,
+        },
+        {
+            "title": "Scoring",
+            "metrics": {
+                "Scored": scores["count"],
+                "Average score": scores["average"],
+                "Highest score": scores["highest"],
+                "Lowest score": scores["lowest"],
+            },
+        },
+        {
+            "title": "Duplicate Detection",
+            "metrics": {
+                "Groups": duplicates["groups"],
+                "Suppressed": duplicates["suppressed"],
+            },
+            "details": duplicates["reasons"],
+        },
+        {
+            "title": "Album Selection",
+            "metrics": {
+                "Selected": selected_asset_count(albums, bucket),
+            },
+        },
+    ]
+    return {"label": label, "stages": stages}
+
+
+def load_pipeline_summaries(db_path: str, albums: list[dict]) -> dict[str, dict]:
+    """Load pipeline summary cards for all albums and each album bucket."""
+    conn = sqlite3.connect(db_path)
+    cur = conn.cursor()
+    summaries = {
+        "all": build_pipeline_summary_for_bucket(cur, albums, None, "All albums")
+    }
+    for album in albums:
+        summaries[album["bucket"]] = build_pipeline_summary_for_bucket(
+            cur,
+            albums,
+            album["bucket"],
+            album["name"],
+        )
+    conn.close()
+    return summaries
+
+
 def attach_album_memberships(assets: list[dict], memberships: dict[str, list[dict]]):
     """Annotate scored assets with generated album memberships."""
     for asset in assets:
         asset["albums"] = memberships.get(asset["asset_id"], [])
+
+
+def attach_duplicate_memberships(
+    assets: list[dict],
+    memberships: dict[str, list[dict]],
+):
+    """Annotate scored assets with duplicate detection status."""
+    for asset in assets:
+        asset["duplicates"] = memberships.get(asset["asset_id"], [])
 
 
 def format_value(value) -> str:
@@ -266,6 +598,47 @@ def content_filter_labels(asset: dict) -> list[str]:
     return labels
 
 
+def duplicate_roles(asset: dict) -> list[str]:
+    """Return duplicate roles attached to one asset."""
+    roles = []
+    for membership in asset.get("duplicates", []):
+        role = membership.get("role") if isinstance(membership, dict) else None
+        if role and role not in roles:
+            roles.append(role)
+    return roles
+
+
+def render_duplicate_badges(asset: dict) -> str:
+    """Render duplicate status badges for one asset card."""
+    duplicates = asset.get("duplicates") or []
+    if not duplicates:
+        return ""
+    badges = []
+    for duplicate in duplicates:
+        role = html.escape(str(duplicate.get("role", "duplicate")))
+        reason = str(duplicate.get("reason", ""))
+        distance = duplicate.get("distance")
+        representative_id = str(duplicate.get("representative_asset_id", ""))
+        title_parts = []
+        if reason:
+            title_parts.append(reason)
+        if representative_id:
+            title_parts.append(f"representative: {representative_id}")
+        title = (
+            f' title="{html.escape("; ".join(title_parts), quote=True)}"'
+            if title_parts
+            else ""
+        )
+        distance_text = f" d={distance}" if distance is not None else ""
+        badges.append(f"<span{title}>{role}{distance_text}</span>")
+    return f"""
+      <div class="duplicate-status">
+        <strong>Duplicates</strong>
+        <div>{''.join(badges)}</div>
+      </div>
+    """
+
+
 def render_asset_card(asset: dict, immich_url: str) -> str:
     """Render one scored asset review card."""
     asset_id = asset["asset_id"]
@@ -277,6 +650,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
     albums = asset.get("albums", [])
     album_buckets_json = json.dumps([album["bucket"] for album in albums])
     content_filter_labels_json = json.dumps(content_filter_labels(asset))
+    duplicate_roles_json = json.dumps(duplicate_roles(asset))
     link = immich_asset_url(immich_url, asset_id)
     thumbnail = asset.get("thumbnail_src") or immich_thumbnail_url(immich_url, asset_id)
     escaped_id = html.escape(asset_id)
@@ -286,12 +660,14 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
     escaped_dimensions = html.escape(dimensions_json, quote=True)
     escaped_album_buckets = html.escape(album_buckets_json, quote=True)
     escaped_content_filter_labels = html.escape(content_filter_labels_json, quote=True)
+    escaped_duplicate_roles = html.escape(duplicate_roles_json, quote=True)
     album_badges = "".join(
         f"<span>{html.escape(album['name'])}</span>" for album in albums
     )
     if not album_badges:
         album_badges = "<span>Not in generated album</span>"
     content_filter_badges = render_content_filter_badges(inputs)
+    duplicate_badges = render_duplicate_badges(asset)
     escaped_datetime = html.escape(
         str(asset.get("photo_datetime") or "Unknown datetime")
     )
@@ -303,6 +679,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
       data-dimensions="{escaped_dimensions}"
       data-albums="{escaped_album_buckets}"
       data-content-filters="{escaped_content_filter_labels}"
+      data-duplicate-roles="{escaped_duplicate_roles}"
     >
       <a class="thumb-link" href="{escaped_link}" target="_blank" rel="noreferrer">
         <img
@@ -326,6 +703,7 @@ def render_asset_card(asset: dict, immich_url: str) -> str:
         {album_badges}
       </div>
       {content_filter_badges}
+      {duplicate_badges}
 
       <section class="labels">
         <label>
@@ -387,16 +765,48 @@ def render_content_filter_options(assets: list[dict]) -> str:
     return "\n".join(options)
 
 
+def render_duplicate_filter_options() -> str:
+    """Render dropdown options for duplicate detection status."""
+    return "\n".join(
+        [
+            '<option value="all">All duplicate statuses</option>',
+            '<option value="any">In any duplicate group</option>',
+            '<option value="suppressed">Suppressed duplicates</option>',
+            '<option value="representative">Duplicate representatives</option>',
+            '<option value="none">Not in duplicate group</option>',
+        ]
+    )
+
+
+def render_pipeline_summary_shell() -> str:
+    """Render the empty pipeline summary section filled by JavaScript."""
+    return """
+    <section class="pipeline-summary" aria-labelledby="pipeline-summary-title">
+      <div class="summary-heading">
+        <div>
+          <h2 id="pipeline-summary-title">Pipeline Summary</h2>
+          <p class="muted" id="pipeline-summary-label">All albums</p>
+        </div>
+      </div>
+      <div class="stage-grid" id="pipeline-summary-grid"></div>
+    </section>
+    """
+
+
 def render_review_html(
     assets: list[dict],
     immich_url: str,
     albums: list[dict] | None = None,
+    pipeline_summaries: dict[str, dict] | None = None,
 ) -> str:
     """Render a full static review page."""
     albums = albums or []
+    pipeline_summaries = pipeline_summaries or {}
     cards = "\n".join(render_asset_card(asset, immich_url) for asset in assets)
     album_options = render_album_filter_options(albums)
     content_filter_options = render_content_filter_options(assets)
+    duplicate_filter_options = render_duplicate_filter_options()
+    summary_json = json.dumps(pipeline_summaries).replace("</", "<\\/")
     return f"""<!doctype html>
 <html lang="en">
 <head>
@@ -437,6 +847,59 @@ def render_review_html(
       border-radius: 8px;
       padding: 16px;
       box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    }}
+    .pipeline-summary {{
+      margin-top: 22px;
+      padding-top: 18px;
+      border-top: 1px solid #dfe4ec;
+    }}
+    .summary-heading {{
+      display: flex;
+      justify-content: space-between;
+      gap: 16px;
+      align-items: flex-start;
+    }}
+    .summary-heading h2 {{
+      margin: 0;
+      font-size: 22px;
+    }}
+    .stage-grid {{
+      display: grid;
+      gap: 12px;
+      grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+      margin-top: 14px;
+    }}
+    .stage-card {{
+      background: white;
+      border: 1px solid #dfe4ec;
+      border-radius: 8px;
+      padding: 14px;
+      box-shadow: 0 1px 2px rgb(0 0 0 / 0.04);
+    }}
+    .stage-card h3 {{
+      margin: 0 0 10px;
+      font-size: 15px;
+    }}
+    .stage-metric,
+    .stage-detail {{
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 4px 0;
+      border-bottom: 1px solid #f0f2f6;
+      font-size: 13px;
+    }}
+    .stage-detail {{
+      color: #657187;
+      font-size: 12px;
+    }}
+    .stage-metric:last-child,
+    .stage-detail:last-child {{
+      border-bottom: 0;
+    }}
+    .stage-metric strong,
+    .stage-detail strong {{
+      text-align: right;
     }}
     .card.hidden {{
       display: none;
@@ -482,6 +945,9 @@ def render_review_html(
     }}
     .content-filter {{
       min-width: 220px;
+    }}
+    .duplicate-filter {{
+      min-width: 230px;
     }}
     button {{
       border: 1px solid #cbd3df;
@@ -558,6 +1024,25 @@ def render_review_html(
       color: #8a3b12;
       padding: 4px 8px;
     }}
+    .duplicate-status {{
+      display: grid;
+      gap: 6px;
+      margin-top: 10px;
+      color: #5d3fd3;
+      font-size: 12px;
+      font-weight: 800;
+    }}
+    .duplicate-status div {{
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }}
+    .duplicate-status span {{
+      border-radius: 999px;
+      background: #eee9ff;
+      color: #5d3fd3;
+      padding: 4px 8px;
+    }}
     .labels {{
       display: grid;
       gap: 10px;
@@ -613,6 +1098,13 @@ def render_review_html(
         background: #171d29;
         border-color: #30394a;
       }}
+      .pipeline-summary {{
+        border-color: #30394a;
+      }}
+      .stage-card {{
+        background: #171d29;
+        border-color: #30394a;
+      }}
       .thumb-link {{
         background: #252d3d;
       }}
@@ -637,6 +1129,13 @@ def render_review_html(
         background: #3a281d;
         color: #ffb07c;
       }}
+      .duplicate-status {{
+        color: #b9a8ff;
+      }}
+      .duplicate-status span {{
+        background: #27213d;
+        color: #b9a8ff;
+      }}
       select,
       button {{
         background: #10141c;
@@ -644,7 +1143,9 @@ def render_review_html(
         color: #edf2fb;
       }}
       details,
-      .score-row {{
+      .score-row,
+      .stage-metric,
+      .stage-detail {{
         border-color: #2a3344;
       }}
       .asset-link {{
@@ -675,10 +1176,17 @@ def render_review_html(
           {content_filter_options}
         </select>
       </label>
+      <label class="duplicate-filter">
+        Duplicate status
+        <select id="duplicate-filter">
+          {duplicate_filter_options}
+        </select>
+      </label>
       <button id="toggle-components" type="button">Show score components</button>
       <button id="toggle-inputs" type="button">Show scoring inputs</button>
       <button id="toggle-faces" type="button">Show face boxes</button>
     </div>
+    {render_pipeline_summary_shell()}
     <section class="grid">
       {cards}
     </section>
@@ -688,6 +1196,7 @@ def render_review_html(
     const faceToggleKey = prefix + "show-face-overlays";
     const albumFilterKey = prefix + "album-filter";
     const contentFilterKey = prefix + "content-filter";
+    const duplicateFilterKey = prefix + "duplicate-filter";
     const componentsToggleKey = prefix + "show-score-components";
     const inputsToggleKey = prefix + "show-scoring-inputs";
     const faceButton = document.querySelector("#toggle-faces");
@@ -695,7 +1204,11 @@ def render_review_html(
     const inputsButton = document.querySelector("#toggle-inputs");
     const albumFilter = document.querySelector("#album-filter");
     const contentFilter = document.querySelector("#content-filter");
+    const duplicateFilter = document.querySelector("#duplicate-filter");
     const visibleCount = document.querySelector("#visible-count");
+    const pipelineSummaries = {summary_json};
+    const pipelineSummaryLabel = document.querySelector("#pipeline-summary-label");
+    const pipelineSummaryGrid = document.querySelector("#pipeline-summary-grid");
 
     function parseJsonAttribute(element, name, fallback) {{
       try {{
@@ -807,21 +1320,76 @@ def render_review_html(
       return contentFilters.includes(selectedContentFilter);
     }}
 
+    function cardMatchesDuplicateFilter(card, selectedDuplicateFilter) {{
+      if (selectedDuplicateFilter === "all") {{
+        return true;
+      }}
+
+      const duplicateRoles = parseJsonAttribute(card, "duplicateRoles", []);
+      if (selectedDuplicateFilter === "any") {{
+        return duplicateRoles.length > 0;
+      }}
+      if (selectedDuplicateFilter === "none") {{
+        return duplicateRoles.length === 0;
+      }}
+      return duplicateRoles.includes(selectedDuplicateFilter);
+    }}
+
+    function renderSummaryRows(items, className) {{
+      return Object.entries(items || {{}}).map(([label, value]) => `
+        <div class="${{className}}">
+          <span>${{escapeHtml(label)}}</span>
+          <strong>${{escapeHtml(String(value))}}</strong>
+        </div>
+      `).join("");
+    }}
+
+    function escapeHtml(value) {{
+      return value
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }}
+
+    function renderPipelineSummary(selectedAlbum) {{
+      const summary = pipelineSummaries[selectedAlbum] || pipelineSummaries.all;
+      if (!summary) {{
+        pipelineSummaryLabel.textContent = "No pipeline data available";
+        pipelineSummaryGrid.innerHTML = "";
+        return;
+      }}
+
+      pipelineSummaryLabel.textContent = summary.label || "Pipeline";
+      pipelineSummaryGrid.innerHTML = (summary.stages || []).map((stage) => `
+        <article class="stage-card">
+          <h3>${{escapeHtml(stage.title)}}</h3>
+          ${{renderSummaryRows(stage.metrics, "stage-metric")}}
+          ${{renderSummaryRows(stage.details, "stage-detail")}}
+        </article>
+      `).join("");
+    }}
+
     function applyFilters() {{
       const selectedAlbum = albumFilter.value || "all";
       const selectedContentFilter = contentFilter.value || "all";
+      const selectedDuplicateFilter = duplicateFilter.value || "all";
       localStorage.setItem(albumFilterKey, selectedAlbum);
       localStorage.setItem(contentFilterKey, selectedContentFilter);
+      localStorage.setItem(duplicateFilterKey, selectedDuplicateFilter);
       let count = 0;
       for (const card of document.querySelectorAll(".card")) {{
         const visible = cardMatchesAlbum(card, selectedAlbum)
-          && cardMatchesContentFilter(card, selectedContentFilter);
+          && cardMatchesContentFilter(card, selectedContentFilter)
+          && cardMatchesDuplicateFilter(card, selectedDuplicateFilter);
         card.classList.toggle("hidden", !visible);
         if (visible) {{
           count += 1;
         }}
       }}
       visibleCount.textContent = String(count);
+      renderPipelineSummary(selectedAlbum);
       renderAllFaceBoxes();
     }}
 
@@ -854,8 +1422,13 @@ def render_review_html(
     if (!contentFilter.value) {{
       contentFilter.value = "all";
     }}
+    duplicateFilter.value = localStorage.getItem(duplicateFilterKey) || "all";
+    if (!duplicateFilter.value) {{
+      duplicateFilter.value = "all";
+    }}
     albumFilter.addEventListener("change", applyFilters);
     contentFilter.addEventListener("change", applyFilters);
+    duplicateFilter.addEventListener("change", applyFilters);
     window.addEventListener("resize", renderAllFaceBoxes);
 
     for (const card of document.querySelectorAll(".card")) {{
@@ -907,7 +1480,10 @@ def write_review_html(
     """Write the review report and return the output path."""
     assets = load_processed_assets(db_path, limit=limit)
     albums, memberships = load_album_memberships(db_path)
+    duplicate_memberships = load_duplicate_memberships(db_path)
+    pipeline_summaries = load_pipeline_summaries(db_path, albums)
     attach_album_memberships(assets, memberships)
+    attach_duplicate_memberships(assets, duplicate_memberships)
     if download_thumbnails:
         attach_local_thumbnails(
             assets,
@@ -915,7 +1491,12 @@ def write_review_html(
             api_key,
             output_path,
         )
-    html_text = render_review_html(assets, immich_url, albums=albums)
+    html_text = render_review_html(
+        assets,
+        immich_url,
+        albums=albums,
+        pipeline_summaries=pipeline_summaries,
+    )
     path = Path(output_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(html_text, encoding="utf-8")
