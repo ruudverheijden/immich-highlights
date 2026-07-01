@@ -70,13 +70,23 @@ def test_init_db_creates_pipeline_stage_tables(tmp_path):
         "duplicate_group_members",
     }.issubset(table_names(conn))
     assert "inputs_json" not in column_names(conn, "asset_scores")
+    assert "taken_at" in column_names(conn, "assets")
     assert "album_bucket" in column_names(conn, "duplicate_groups")
 
 
 def test_asset_filter_result_upsert_and_get(tmp_path):
     """Filtering decisions should be queryable per album bucket."""
     conn = init_db(str(tmp_path / "test.db"))
-    upsert_processed_asset(conn, "a1", "checksum-1", 88, {}, None, {"score": 88})
+    upsert_processed_asset(
+        conn,
+        "a1",
+        "checksum-1",
+        88,
+        {},
+        None,
+        {"score": 88},
+        taken_at="2026-06-24T19:15:30Z",
+    )
 
     upsert_asset_filter_result(
         conn,
@@ -159,10 +169,11 @@ def test_processed_asset_upsert_populates_stage_tables(tmp_path):
     )
 
     cur = conn.cursor()
-    cur.execute("SELECT asset_id, checksum, rating, exif_json FROM assets")
+    cur.execute("SELECT asset_id, checksum, rating, taken_at, exif_json FROM assets")
     asset_row = cur.fetchone()
     assert asset_row[:3] == ("a1", "checksum-1", 4)
-    assert json.loads(asset_row[3]) == {"iso": 100}
+    assert asset_row[3] is None
+    assert json.loads(asset_row[4]) == {"iso": 100}
 
     cur.execute(
         "SELECT blur_variance, brightness, contrast, phash, portrait_quality "

@@ -5,7 +5,12 @@ from pathlib import Path
 from PIL import Image, UnidentifiedImageError
 
 try:
-    from .asset_discovery import get_asset_checksum, get_asset_id, iter_rule_assets
+    from .asset_discovery import (
+        get_asset_checksum,
+        get_asset_id,
+        get_asset_taken_at,
+        iter_rule_assets,
+    )
     from .db import get_processed_asset, get_scoring_inputs, upsert_processed_asset
     from .duplicate_detection import deduplicate_scored_assets
     from .filtering import filter_album_candidates
@@ -20,7 +25,12 @@ try:
     )
     from .technical_analysis import analyze_technical_image, checksum_file
 except ImportError:
-    from asset_discovery import get_asset_checksum, get_asset_id, iter_rule_assets
+    from asset_discovery import (
+        get_asset_checksum,
+        get_asset_id,
+        get_asset_taken_at,
+        iter_rule_assets,
+    )
     from db import get_processed_asset, get_scoring_inputs, upsert_processed_asset
     from duplicate_detection import deduplicate_scored_assets
     from filtering import filter_album_candidates
@@ -73,6 +83,7 @@ def recalculate_cached_score(
         cached.get("exif") or get_asset_exif_for_storage(meta),
         inputs.get("rating", cached.get("rating")),
         score_details,
+        taken_at=get_asset_taken_at({}, meta),
     )
     return score_details
 
@@ -176,6 +187,7 @@ def score_or_reuse_asset(
             exif_val,
             details.get("rating"),
             details.get("score_details"),
+            taken_at=get_asset_taken_at(asset, meta),
         )
         logger.info(
             "Scored photo %s (%s): score=%s, blur_variance=%s, "
@@ -277,5 +289,8 @@ def curate_assets_for_rule(
         scored,
         enabled=scoring_config.duplicate_detection_enabled,
         threshold=scoring_config.duplicate_phash_distance_threshold,
+        timestamp_enabled=scoring_config.timestamp_duplicate_detection_enabled,
+        timestamp_window_seconds=scoring_config.timestamp_duplicate_window_seconds,
+        timestamp_phash_threshold=scoring_config.timestamp_duplicate_phash_threshold,
     )
     return select_top_scored_assets(deduplicated, rule.limit)

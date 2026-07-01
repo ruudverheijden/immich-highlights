@@ -2,10 +2,10 @@ import logging
 from dataclasses import dataclass
 
 try:
-    from .asset_discovery import get_asset_checksum, get_asset_id
+    from .asset_discovery import get_asset_checksum, get_asset_id, get_asset_taken_at
     from .db import upsert_asset_filter_result, upsert_asset_record
 except ImportError:
-    from asset_discovery import get_asset_checksum, get_asset_id
+    from asset_discovery import get_asset_checksum, get_asset_id, get_asset_taken_at
     from db import upsert_asset_filter_result, upsert_asset_record
 
 
@@ -41,6 +41,7 @@ def filter_album_candidates(conn, rule, candidates: list[dict]) -> list[dict]:
             get_asset_checksum(decision.asset, {}),
             decision.asset.get("exifInfo") or decision.asset.get("exif") or {},
             decision.asset.get("rating"),
+            taken_at=get_asset_taken_at(decision.asset),
         )
         upsert_asset_filter_result(
             conn,

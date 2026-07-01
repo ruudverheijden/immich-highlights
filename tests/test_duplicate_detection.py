@@ -2,11 +2,13 @@ from src.db import get_duplicate_groups, init_db, upsert_processed_asset
 from src.duplicate_detection import (
     deduplicate_scored_assets,
     duplicate_groups_from_phashes,
+    duplicate_groups_from_timestamps,
+    parse_asset_timestamp,
     phash_hamming_distance,
 )
 
 
-def store_phash(conn, asset_id, phash):
+def store_phash(conn, asset_id, phash, taken_at=None):
     """Store enough stage data for duplicate detection tests."""
     upsert_processed_asset(
         conn,
@@ -19,6 +21,7 @@ def store_phash(conn, asset_id, phash):
             "score": 80,
             "inputs": {"phash": phash},
         },
+        taken_at=taken_at,
     )
 
 
@@ -56,6 +59,71 @@ def test_duplicate_groups_are_anchored_to_best_scoring_representative():
             ],
         }
     ]
+
+
+def test_parse_asset_timestamp_supports_immich_and_exif_shapes():
+    """Timestamp parsing should handle common Immich ISO and EXIF strings."""
+    assert parse_asset_timestamp("2026-06-24T19:15:30.000Z").year == 2026
+    assert parse_asset_timestamp("2026:06:24 19:15:30").month == 6
+    assert parse_asset_timestamp("not-a-date") is None
+
+
+def test_timestamp_groups_require_close_time_and_similar_phash():
+    """Timestamp proximity should not suppress visually different photos."""
+    scored = [("a", 90), ("b", 80), ("c", 70)]
+    phashes = {
+        "a": "0000",
+        "b": "000f",
+        "c": "ffff",
+    }
+    taken_at = {
+        "a": parse_asset_timestamp("2026-06-24T19:15:30Z"),
+        "b": parse_asset_timestamp("2026-06-24T19:15:31Z"),
+        "c": parse_asset_timestamp("2026-06-24T19:15:31Z"),
+    }
+
+    groups = duplicate_groups_from_timestamps(
+        scored,
+        phashes,
+        taken_at,
+        window_seconds=2,
+        phash_threshold=4,
+        album_bucket="last-week",
+    )
+
+    assert groups == [
+        {
+            "group_id": "last-week:timestamp:1:a",
+            "representative_asset_id": "a",
+            "reason": "timestamp<=2s+phash_distance<=4",
+            "members": [
+                {"asset_id": "a", "distance": 0, "score": 90},
+                {"asset_id": "b", "distance": 4, "score": 80},
+            ],
+        }
+    ]
+
+
+def test_timestamp_groups_ignore_similar_photos_outside_window():
+    """Similar photos should not use timestamp grouping when time is too far apart."""
+    scored = [("a", 90), ("b", 80)]
+    phashes = {"a": "0000", "b": "000f"}
+    taken_at = {
+        "a": parse_asset_timestamp("2026-06-24T19:15:30Z"),
+        "b": parse_asset_timestamp("2026-06-24T19:15:40Z"),
+    }
+
+    assert (
+        duplicate_groups_from_timestamps(
+            scored,
+            phashes,
+            taken_at,
+            window_seconds=2,
+            phash_threshold=4,
+            album_bucket="last-week",
+        )
+        == []
+    )
 
 
 def test_deduplicate_scored_assets_persists_groups_and_suppresses_duplicates(
@@ -107,3 +175,26 @@ def test_disabled_duplicate_detection_clears_existing_groups(tmp_path):
 
     assert deduplicated == [("a", 90), ("b", 80)]
     assert get_duplicate_groups(conn, "last-week") == []
+
+
+def test_deduplicate_scored_assets_uses_timestamp_confirmed_duplicates(tmp_path):
+    """Timestamp grouping can catch burst duplicates beyond the strict pHash limit."""
+    conn = init_db(str(tmp_path / "test.db"))
+    store_phash(conn, "a", "0000", taken_at="2026-06-24T19:15:30Z")
+    store_phash(conn, "b", "000f", taken_at="2026-06-24T19:15:31Z")
+    store_phash(conn, "c", "ffff", taken_at="2026-06-24T19:15:31Z")
+
+    deduplicated = deduplicate_scored_assets(
+        conn,
+        "last-week",
+        [("a", 90), ("b", 80), ("c", 70)],
+        enabled=True,
+        threshold=1,
+        timestamp_enabled=True,
+        timestamp_window_seconds=2,
+        timestamp_phash_threshold=4,
+    )
+
+    assert deduplicated == [("a", 90), ("c", 70)]
+    groups = get_duplicate_groups(conn, "last-week")
+    assert groups[0]["reason"] == "timestamp<=2s+phash_distance<=4"

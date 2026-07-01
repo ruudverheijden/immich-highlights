@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS assets (
     asset_id TEXT PRIMARY KEY,
     checksum TEXT,
     rating INTEGER,
+    taken_at TEXT,
     exif_json TEXT,
     synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
@@ -152,6 +153,25 @@ def without_none_values(mapping: dict) -> dict:
     return {key: value for key, value in mapping.items() if value is not None}
 
 
+def first_taken_at_from_exif(exif: dict | None) -> str | None:
+    """Return a timestamp-like field from stored EXIF data when available."""
+    if not isinstance(exif, dict):
+        return None
+    for key in (
+        "localDateTime",
+        "dateTimeOriginal",
+        "DateTimeOriginal",
+        "dateTime",
+        "DateTime",
+        "fileCreatedAt",
+        "createdAt",
+    ):
+        value = exif.get(key)
+        if value:
+            return str(value)
+    return None
+
+
 def init_db(db_path: str):
     """Create the SQLite database and return an open connection."""
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
@@ -162,18 +182,20 @@ def init_db(db_path: str):
     return conn
 
 
-def upsert_asset_record(conn, asset_id, checksum, exif, rating):
+def upsert_asset_record(conn, asset_id, checksum, exif, rating, taken_at=None):
     """Store Immich-sourced asset metadata for the discovery stage."""
     cur = conn.cursor()
     cur.execute(
-        "INSERT INTO assets (asset_id, checksum, rating, exif_json, synced_at) "
-        "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP) "
+        "INSERT INTO assets "
+        "(asset_id, checksum, rating, taken_at, exif_json, synced_at) "
+        "VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP) "
         "ON CONFLICT(asset_id) DO UPDATE SET "
         "checksum=excluded.checksum, "
         "rating=excluded.rating, "
+        "taken_at=excluded.taken_at, "
         "exif_json=excluded.exif_json, "
         "synced_at=CURRENT_TIMESTAMP",
-        (asset_id, checksum, rating, json.dumps(exif or {})),
+        (asset_id, checksum, rating, taken_at, json.dumps(exif or {})),
     )
 
 
@@ -327,6 +349,27 @@ def get_asset_filter_result(conn, asset_id, album_bucket):
         "reason": row[1],
         "details": json.loads(row[2] or "{}"),
         "filtered_at": row[3],
+    }
+
+
+def get_asset_record(conn, asset_id):
+    """Fetch Immich-sourced discovery metadata for one asset."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT asset_id, checksum, rating, taken_at, exif_json, synced_at "
+        "FROM assets WHERE asset_id = ?",
+        (asset_id,),
+    )
+    row = cur.fetchone()
+    if not row:
+        return None
+    return {
+        "asset_id": row[0],
+        "checksum": row[1],
+        "rating": row[2],
+        "taken_at": row[3],
+        "exif": json.loads(row[4] or "{}"),
+        "synced_at": row[5],
     }
 
 
@@ -496,7 +539,14 @@ def get_scoring_inputs(conn, asset_id):
 
 
 def upsert_processed_asset(
-    conn, asset_id, checksum, score, exif, rating, score_details
+    conn,
+    asset_id,
+    checksum,
+    score,
+    exif,
+    rating,
+    score_details,
+    taken_at=None,
 ):
     """Store the latest score for an asset, replacing stale scan results."""
     cur = conn.cursor()
@@ -518,7 +568,14 @@ def upsert_processed_asset(
         (asset_id, checksum, score, exif_json, rating, score_details_json),
     )
     inputs = (score_details or {}).get("inputs", {})
-    upsert_asset_record(conn, asset_id, checksum, exif, rating)
+    upsert_asset_record(
+        conn,
+        asset_id,
+        checksum,
+        exif,
+        rating,
+        taken_at=taken_at or first_taken_at_from_exif(exif),
+    )
     upsert_technical_analysis(conn, asset_id, checksum, inputs)
     upsert_semantic_analysis(conn, asset_id, checksum, inputs)
     upsert_asset_score(conn, asset_id, score_details or {})

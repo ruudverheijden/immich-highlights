@@ -94,6 +94,9 @@ content_filter_min_penalty = -25
 [duplicate_detection]
 duplicate_detection_enabled = false
 duplicate_phash_distance_threshold = 4
+timestamp_duplicate_detection_enabled = false
+timestamp_duplicate_window_seconds = 3
+timestamp_duplicate_phash_threshold = 9
 """,
         encoding="utf-8",
     )
@@ -106,6 +109,9 @@ duplicate_phash_distance_threshold = 4
     assert config.content_filter_min_penalty == -25
     assert config.duplicate_detection_enabled is False
     assert config.duplicate_phash_distance_threshold == 4
+    assert config.timestamp_duplicate_detection_enabled is False
+    assert config.timestamp_duplicate_window_seconds == 3
+    assert config.timestamp_duplicate_phash_threshold == 9
     assert config.rating_step == DEFAULT_SCORING_CONFIG.rating_step
 
 

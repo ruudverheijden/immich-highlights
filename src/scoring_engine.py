@@ -37,6 +37,9 @@ class ScoringConfig:
     content_filter_min_penalty: int = -50
     duplicate_detection_enabled: bool = True
     duplicate_phash_distance_threshold: int = 6
+    timestamp_duplicate_detection_enabled: bool = True
+    timestamp_duplicate_window_seconds: int = 2
+    timestamp_duplicate_phash_threshold: int = 10
 
 
 DEFAULT_SCORING_CONFIG = ScoringConfig()

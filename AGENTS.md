@@ -165,6 +165,10 @@ highest-scoring representative from visually similar groups. The current version
 uses a configurable Hamming-distance threshold and anchors each group to the
 best-scoring representative to avoid chain grouping.
 
+Timestamp duplicate detection is an additional confirmation path for bursts. It
+must never group on timestamp alone; require photos to be within the configured
+seconds window and within the configured pHash threshold.
+
 ## Review Export
 
 `src/export_review.py` is a development/tuning tool, not part of the Docker

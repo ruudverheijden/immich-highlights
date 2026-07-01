@@ -365,7 +365,9 @@ The file has four sections:
   brightness thresholds
 - `[content_filters]`: the minimum content-filter penalty cap
 - `[duplicate_detection]`: whether pHash duplicate suppression is enabled and
-  how visually close two photos must be before one is held back from the album
+  how visually close two photos must be before one is held back from the album.
+  Timestamp-based duplicate detection is also configured here, but timestamp
+  proximity is only used together with pHash similarity to avoid false positives.
 
 Example:
 
@@ -387,6 +389,9 @@ content_filter_min_penalty = -50
 [duplicate_detection]
 duplicate_detection_enabled = true
 duplicate_phash_distance_threshold = 6
+timestamp_duplicate_detection_enabled = true
+timestamp_duplicate_window_seconds = 2
+timestamp_duplicate_phash_threshold = 10
 ```
 
 Numeric fields must be numbers, and `duplicate_detection_enabled` must be a
