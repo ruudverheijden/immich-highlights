@@ -1,3 +1,5 @@
+"""Tests for environment-variable parsing and validation."""
+
 import pytest
 
 from src.config import (

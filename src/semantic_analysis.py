@@ -1,3 +1,5 @@
+"""Semantic/user metadata analysis, face facts, and content-filter matching."""
+
 from datetime import timedelta
 import logging
 

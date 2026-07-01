@@ -1,3 +1,5 @@
+"""Near-duplicate detection using pHash and timestamp-confirmed burst matching."""
+
 import logging
 from datetime import datetime
 

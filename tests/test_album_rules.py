@@ -1,3 +1,5 @@
+"""Tests for album and content-filter TOML configuration parsing."""
+
 from datetime import datetime, timezone
 
 import pytest

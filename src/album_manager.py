@@ -1,3 +1,5 @@
+"""Immich album persistence helpers for creating, updating, and tracking albums."""
+
 from typing import List
 
 try:

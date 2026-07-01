@@ -1,3 +1,5 @@
+"""Top-level pipeline orchestration for one end-to-end curation run."""
+
 import logging
 from dataclasses import dataclass
 

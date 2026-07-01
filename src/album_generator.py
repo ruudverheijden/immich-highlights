@@ -1,3 +1,5 @@
+"""Final album sync stage that creates or updates Immich albums from selected assets."""
+
 import logging
 
 import requests

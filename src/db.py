@@ -1,3 +1,5 @@
+"""SQLite schema and persistence helpers for pipeline stage outputs."""
+
 import json
 import sqlite3
 from pathlib import Path

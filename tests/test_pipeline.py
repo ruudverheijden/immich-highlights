@@ -1,3 +1,5 @@
+"""Tests for top-level pipeline context, config, and orchestration."""
+
 from types import SimpleNamespace
 
 import requests

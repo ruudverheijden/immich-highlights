@@ -1,3 +1,5 @@
+"""Tests for curation compatibility exports and final album generation behavior."""
+
 from datetime import datetime, timezone
 from PIL import Image
 

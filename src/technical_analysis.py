@@ -1,3 +1,5 @@
+"""Technical image-analysis stage for objective visual quality facts."""
+
 import hashlib
 
 try:

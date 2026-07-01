@@ -1,3 +1,5 @@
+"""Tests for explainable scoring rules and scoring config loading."""
+
 from src.scoring_engine import (
     DEFAULT_SCORING_CONFIG,
     ScoringConfig,

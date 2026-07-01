@@ -1,3 +1,5 @@
+"""HTTP client wrapper for the Immich API endpoints used by the service."""
+
 import requests
 from typing import Iterator, List, Optional
 import logging

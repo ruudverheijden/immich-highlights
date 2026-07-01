@@ -1,3 +1,5 @@
+"""Tests for pHash and timestamp-confirmed duplicate detection."""
+
 from src.db import get_duplicate_groups, init_db, upsert_processed_asset
 from src.duplicate_detection import (
     deduplicate_scored_assets,

@@ -1,3 +1,5 @@
+"""Filtering stage that records per-album candidate include/exclude decisions."""
+
 import logging
 from dataclasses import dataclass
 

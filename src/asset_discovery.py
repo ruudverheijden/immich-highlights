@@ -1,3 +1,6 @@
+"""Asset discovery helpers that normalize Immich search result fields."""
+
+
 def get_asset_id(asset: dict) -> str | None:
     """Return an Immich asset identifier across known response shapes."""
     return asset.get("id") or asset.get("assetId") or asset.get("uuid")

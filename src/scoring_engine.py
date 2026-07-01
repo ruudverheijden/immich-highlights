@@ -1,3 +1,5 @@
+"""Explainable scoring rules and TOML loading for photo quality ranking."""
+
 from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 import tomllib

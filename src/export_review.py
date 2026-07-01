@@ -1,3 +1,5 @@
+"""Development-only HTML review export for inspecting scores and thumbnails."""
+
 import argparse
 from datetime import datetime
 import html

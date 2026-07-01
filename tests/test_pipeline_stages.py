@@ -1,3 +1,5 @@
+"""Tests for individual pipeline stage helpers."""
+
 from src.asset_discovery import get_asset_checksum, get_asset_id, iter_rule_assets
 from src.db import get_asset_filter_result, init_db, upsert_processed_asset
 from src.filtering import filter_album_candidates

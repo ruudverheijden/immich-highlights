@@ -1,3 +1,5 @@
+"""Environment-variable parsing and validation for service configuration."""
+
 import os
 from urllib.parse import urlparse
 

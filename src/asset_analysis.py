@@ -1,3 +1,5 @@
+"""Low-level image and metadata analysis helpers used by pipeline stages."""
+
 from PIL import Image
 from PIL import ImageDraw
 from PIL import ImageStat

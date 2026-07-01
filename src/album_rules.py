@@ -1,3 +1,5 @@
+"""TOML-backed album and content-filter configuration models and loaders."""
+
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path

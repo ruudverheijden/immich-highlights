@@ -1,3 +1,5 @@
+"""Tests for Immich API request payloads and response handling."""
+
 from src.immich_client import ImmichClient
 import pytest
 import requests

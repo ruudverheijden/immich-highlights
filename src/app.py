@@ -1,3 +1,5 @@
+"""Command-line entrypoint for running one Immich highlights pipeline pass."""
+
 import argparse
 import logging
 

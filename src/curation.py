@@ -1,3 +1,5 @@
+"""Coordinates discovery, filtering, analysis, scoring, dedupe, and selection."""
+
 import logging
 import os
 from pathlib import Path

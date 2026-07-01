@@ -1,3 +1,5 @@
+"""Tests for Immich album create/update bookkeeping."""
+
 from src.album_manager import AlbumManager
 from src.db import get_album_mapping, init_db, upsert_album_mapping
 

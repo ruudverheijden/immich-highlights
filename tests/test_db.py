@@ -1,3 +1,5 @@
+"""Tests for SQLite schema creation and persistence helpers."""
+
 import os
 import tempfile
 import json

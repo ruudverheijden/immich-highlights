@@ -1,3 +1,5 @@
+"""Tests for command-line argument parsing."""
+
 import pytest
 
 from src.app import parse_args

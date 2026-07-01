@@ -1,3 +1,5 @@
+"""Tests for low-level image analysis and metadata normalization helpers."""
+
 from PIL import Image, ImageDraw, ImageFilter
 
 from src.asset_analysis import (
