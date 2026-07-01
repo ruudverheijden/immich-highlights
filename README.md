@@ -357,13 +357,15 @@ The scoring config is intentionally not stored in the database. Cached photos
 store normalized scoring inputs, so rerunning the service can recalculate scores
 with the latest config without downloading every unchanged image again.
 
-The file has three sections:
+The file has four sections:
 
 - `[weights]`: general bonuses such as favorites, ratings, faces, location, and
   portrait-like photos
 - `[technical_quality]`: blur, resolution, ISO, exposure, contrast, and
   brightness thresholds
 - `[content_filters]`: the minimum content-filter penalty cap
+- `[duplicate_detection]`: whether pHash duplicate suppression is enabled and
+  how visually close two photos must be before one is held back from the album
 
 Example:
 
@@ -381,10 +383,15 @@ blur_high_bonus = 10
 
 [content_filters]
 content_filter_min_penalty = -50
+
+[duplicate_detection]
+duplicate_detection_enabled = true
+duplicate_phash_distance_threshold = 6
 ```
 
-Only numeric values are accepted. Unknown field names fail fast at startup so
-typos do not silently change scoring behavior.
+Numeric fields must be numbers, and `duplicate_detection_enabled` must be a
+TOML boolean (`true` or `false`). Unknown field names fail fast at startup so
+typos do not silently change behavior.
 
 ## Review Export
 
@@ -465,6 +472,7 @@ The current implementation separates the main album flow into stage modules:
   contrast, perceptual hash, and portrait quality
 - `src/semantic_analysis.py`: Immich/user facts, face metadata, location,
   content-filter labels, and content-filter matching
+- `src/duplicate_detection.py`: pHash near-duplicate grouping after scoring
 - `src/selection.py`: album asset selection from scored candidates
 - `src/album_generator.py`: final Immich album create/update sync
 
@@ -504,13 +512,12 @@ The database now has separate stage-oriented tables alongside the legacy
 - `semantic_analysis`: user/semantic facts such as rating, faces, location,
   favorites, edited status, and content-filter labels
 - `asset_scores`: explainable score outputs and score components
-- `duplicate_groups` and `duplicate_group_members`: reserved for future exact
-  and near-duplicate detection
+- `duplicate_groups` and `duplicate_group_members`: pHash near-duplicate groups
+  found after scoring and before final album selection
 
 Future functionality ideas:
 
 - Fine tune scoring
-- Deduplicate based on visual similarity
 - Deduplicate based on location and time
 - Test the service running in Docker on Synology
 - Test larger photo libraries

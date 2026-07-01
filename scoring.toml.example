@@ -110,3 +110,17 @@ brightness_penalty = -10
 # uses the filter where Immich ranked the photo highest and then applies this
 # cap.
 content_filter_min_penalty = -50
+
+[duplicate_detection]
+# Enable perceptual-hash based near-duplicate suppression. This runs after
+# scoring and before final album selection, so every photo still receives its
+# normal score; only visually redundant photos are held back from the album.
+duplicate_detection_enabled = true
+
+# Maximum pHash Hamming distance for two photos to be treated as near-duplicates.
+# Lower values are stricter:
+#   0 = only identical perceptual hashes
+#   4 = very similar images
+#   6 = practical default for bursts/near-identical edits
+#   8+ = more aggressive and may group photos that are merely similar
+duplicate_phash_distance_threshold = 6

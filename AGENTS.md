@@ -32,7 +32,7 @@ separation of responsibilities:
 3. Technical analysis: compute objective image facts.
 4. Semantic analysis: collect meaningful metadata and labels.
 5. Event detection: group assets by time/location later.
-6. Duplicate detection: detect exact and near-duplicate images later.
+6. Duplicate detection: suppress near-duplicate images after scoring.
 7. Scoring: convert facts into explainable score components.
 8. Diversity selection: choose a good collection, not just highest scores.
 9. Album generation: create or update Immich albums.
@@ -47,6 +47,7 @@ dedicated modules:
 - `src/filtering.py`
 - `src/technical_analysis.py`
 - `src/semantic_analysis.py`
+- `src/duplicate_detection.py`
 - `src/selection.py`
 
 Keep future changes moving reusable work out of coordinators and into
@@ -76,8 +77,8 @@ Stage tables:
 - `semantic_analysis`: user/semantic facts such as rating, faces, location,
   favorites, edited status, and content-filter labels.
 - `asset_scores`: scoring outputs only.
-- `duplicate_groups` and `duplicate_group_members`: reserved for duplicate
-  detection.
+- `duplicate_groups` and `duplicate_group_members`: pHash near-duplicate
+  groups found after scoring and before final album selection.
 
 Do not put scoring inputs back into `asset_scores`. Inputs belong in
 `technical_analysis` or `semantic_analysis`. `asset_scores` should contain only
@@ -156,12 +157,13 @@ the separate EXIF/database field.
 
 ## Deduplication Direction
 
-Visual deduplication should be implemented as a post-scoring selection stage,
-not as part of the score itself.
+Visual deduplication is implemented as a post-scoring selection stage, not as
+part of the score itself.
 
 Use perceptual hashes (`phash`) stored in `technical_analysis`. Keep the
-highest-scoring representative from visually similar groups. The first version
-should be simple and configurable, likely using a Hamming-distance threshold.
+highest-scoring representative from visually similar groups. The current version
+uses a configurable Hamming-distance threshold and anchors each group to the
+best-scoring representative to avoid chain grouping.
 
 ## Review Export
 

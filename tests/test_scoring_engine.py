@@ -90,6 +90,10 @@ blur_low_threshold = 75
 
 [content_filters]
 content_filter_min_penalty = -25
+
+[duplicate_detection]
+duplicate_detection_enabled = false
+duplicate_phash_distance_threshold = 4
 """,
         encoding="utf-8",
     )
@@ -100,6 +104,8 @@ content_filter_min_penalty = -25
     assert config.favorite_bonus == 12
     assert config.blur_low_threshold == 75
     assert config.content_filter_min_penalty == -25
+    assert config.duplicate_detection_enabled is False
+    assert config.duplicate_phash_distance_threshold == 4
     assert config.rating_step == DEFAULT_SCORING_CONFIG.rating_step
 
 
@@ -127,6 +133,22 @@ def test_load_scoring_config_rejects_boolean_values(tmp_path):
         assert "favorite_bonus" in str(e)
     else:
         raise AssertionError("Expected ValueError for boolean scoring value")
+
+
+def test_load_scoring_config_rejects_non_boolean_duplicate_toggle(tmp_path):
+    """The duplicate detection enabled flag should be a TOML boolean."""
+    path = tmp_path / "scoring.toml"
+    path.write_text(
+        "[duplicate_detection]\nduplicate_detection_enabled = 1\n",
+        encoding="utf-8",
+    )
+
+    try:
+        load_scoring_config(str(path))
+    except ValueError as e:
+        assert "duplicate_detection_enabled" in str(e)
+    else:
+        raise AssertionError("Expected ValueError for non-boolean duplicate toggle")
 
 
 def test_calculate_score_combines_scoring_inputs():

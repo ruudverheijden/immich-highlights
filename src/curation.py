@@ -7,6 +7,7 @@ from PIL import Image, UnidentifiedImageError
 try:
     from .asset_discovery import get_asset_checksum, get_asset_id, iter_rule_assets
     from .db import get_processed_asset, get_scoring_inputs, upsert_processed_asset
+    from .duplicate_detection import deduplicate_scored_assets
     from .filtering import filter_album_candidates
     from .scoring_engine import DEFAULT_SCORING_CONFIG, calculate_score_details
     from .selection import select_top_scored_assets
@@ -21,6 +22,7 @@ try:
 except ImportError:
     from asset_discovery import get_asset_checksum, get_asset_id, iter_rule_assets
     from db import get_processed_asset, get_scoring_inputs, upsert_processed_asset
+    from duplicate_detection import deduplicate_scored_assets
     from filtering import filter_album_candidates
     from scoring_engine import DEFAULT_SCORING_CONFIG, calculate_score_details
     from selection import select_top_scored_assets
@@ -269,4 +271,11 @@ def curate_assets_for_rule(
         len(scored),
         penalized_candidate_count,
     )
-    return select_top_scored_assets(scored, rule.limit)
+    deduplicated = deduplicate_scored_assets(
+        conn,
+        rule.bucket,
+        scored,
+        enabled=scoring_config.duplicate_detection_enabled,
+        threshold=scoring_config.duplicate_phash_distance_threshold,
+    )
+    return select_top_scored_assets(deduplicated, rule.limit)

@@ -91,13 +91,17 @@ CREATE INDEX IF NOT EXISTS idx_asset_scores_album_score
 ON asset_scores(album_bucket, score DESC);
 
 CREATE TABLE IF NOT EXISTS duplicate_groups (
-    -- Future near-duplicate groups, for example based on perceptual hashes.
+    -- Near-duplicate groups, for example based on perceptual hashes.
     group_id TEXT PRIMARY KEY,
+    album_bucket TEXT,
     representative_asset_id TEXT,
     reason TEXT,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY(representative_asset_id) REFERENCES assets(asset_id)
 );
+
+CREATE INDEX IF NOT EXISTS idx_duplicate_groups_album_bucket
+ON duplicate_groups(album_bucket);
 
 CREATE TABLE IF NOT EXISTS duplicate_group_members (
     group_id TEXT,
@@ -403,6 +407,81 @@ def get_asset_score(conn, asset_id, album_bucket="global"):
         "components": json.loads(row[2] or "{}"),
         "calculated_at": row[3],
     }
+
+
+def replace_duplicate_groups(conn, album_bucket, groups):
+    """Replace stored duplicate groups for one album context."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT group_id FROM duplicate_groups WHERE album_bucket = ?",
+        (album_bucket,),
+    )
+    existing_group_ids = [row[0] for row in cur.fetchall()]
+    if existing_group_ids:
+        cur.executemany(
+            "DELETE FROM duplicate_group_members WHERE group_id = ?",
+            [(group_id,) for group_id in existing_group_ids],
+        )
+    cur.execute(
+        "DELETE FROM duplicate_groups WHERE album_bucket = ?",
+        (album_bucket,),
+    )
+
+    for group in groups:
+        cur.execute(
+            "INSERT INTO duplicate_groups "
+            "(group_id, album_bucket, representative_asset_id, reason, created_at) "
+            "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)",
+            (
+                group["group_id"],
+                album_bucket,
+                group["representative_asset_id"],
+                group.get("reason", "phash"),
+            ),
+        )
+        cur.executemany(
+            "INSERT INTO duplicate_group_members "
+            "(group_id, asset_id, distance, created_at) "
+            "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+            [
+                (
+                    group["group_id"],
+                    member["asset_id"],
+                    member.get("distance"),
+                )
+                for member in group.get("members", [])
+            ],
+        )
+    conn.commit()
+
+
+def get_duplicate_groups(conn, album_bucket):
+    """Fetch duplicate groups and members for one album context."""
+    cur = conn.cursor()
+    cur.execute(
+        "SELECT group_id, representative_asset_id, reason "
+        "FROM duplicate_groups WHERE album_bucket = ? ORDER BY group_id",
+        (album_bucket,),
+    )
+    groups = []
+    for group_id, representative_asset_id, reason in cur.fetchall():
+        cur.execute(
+            "SELECT asset_id, distance FROM duplicate_group_members "
+            "WHERE group_id = ? ORDER BY asset_id",
+            (group_id,),
+        )
+        groups.append(
+            {
+                "group_id": group_id,
+                "representative_asset_id": representative_asset_id,
+                "reason": reason,
+                "members": [
+                    {"asset_id": asset_id, "distance": distance}
+                    for asset_id, distance in cur.fetchall()
+                ],
+            }
+        )
+    return groups
 
 
 def get_scoring_inputs(conn, asset_id):

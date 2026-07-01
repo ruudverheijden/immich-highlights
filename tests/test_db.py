@@ -5,6 +5,7 @@ from src.db import (
     get_asset_filter_result,
     get_asset_score,
     get_album_mapping,
+    get_duplicate_groups,
     get_processed_asset,
     get_scoring_inputs,
     get_semantic_analysis,
@@ -13,6 +14,7 @@ from src.db import (
     upsert_asset_filter_result,
     upsert_album_mapping,
     upsert_processed_asset,
+    replace_duplicate_groups,
 )
 
 
@@ -68,6 +70,7 @@ def test_init_db_creates_pipeline_stage_tables(tmp_path):
         "duplicate_group_members",
     }.issubset(table_names(conn))
     assert "inputs_json" not in column_names(conn, "asset_scores")
+    assert "album_bucket" in column_names(conn, "duplicate_groups")
 
 
 def test_asset_filter_result_upsert_and_get(tmp_path):
@@ -89,6 +92,32 @@ def test_asset_filter_result_upsert_and_get(tmp_path):
     assert row["included"] is True
     assert row["reason"] == "accepted_timeline_image_candidate"
     assert row["details"] == {"album_name": "Highlights: Last Week"}
+
+
+def test_duplicate_groups_replace_and_get(tmp_path):
+    """Duplicate groups should be replaced per album bucket on each run."""
+    conn = init_db(str(tmp_path / "test.db"))
+    upsert_processed_asset(conn, "a1", "checksum-1", 90, {}, None, {"score": 90})
+    upsert_processed_asset(conn, "a2", "checksum-2", 80, {}, None, {"score": 80})
+
+    replace_duplicate_groups(
+        conn,
+        "last-week",
+        [
+            {
+                "group_id": "last-week:phash:1:a1",
+                "representative_asset_id": "a1",
+                "reason": "phash_distance<=6",
+                "members": [
+                    {"asset_id": "a1", "distance": 0},
+                    {"asset_id": "a2", "distance": 3},
+                ],
+            }
+        ],
+    )
+    replace_duplicate_groups(conn, "last-week", [])
+
+    assert get_duplicate_groups(conn, "last-week") == []
 
 
 def test_processed_asset_upsert_populates_stage_tables(tmp_path):

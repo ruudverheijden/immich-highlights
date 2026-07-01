@@ -35,6 +35,8 @@ class ScoringConfig:
     brightness_penalty: int = -10
     max_portrait_quality_bonus: int = 15
     content_filter_min_penalty: int = -50
+    duplicate_detection_enabled: bool = True
+    duplicate_phash_distance_threshold: int = 6
 
 
 DEFAULT_SCORING_CONFIG = ScoringConfig()
@@ -46,7 +48,12 @@ def load_scoring_config(path: str | None = None) -> ScoringConfig:
         return DEFAULT_SCORING_CONFIG
 
     data = _load_toml(path)
-    allowed_sections = {"weights", "technical_quality", "content_filters"}
+    allowed_sections = {
+        "weights",
+        "technical_quality",
+        "content_filters",
+        "duplicate_detection",
+    }
     unknown_sections = set(data) - allowed_sections
     if unknown_sections:
         raise ValueError(
@@ -61,7 +68,11 @@ def load_scoring_config(path: str | None = None) -> ScoringConfig:
         for key, value in section.items():
             if key not in values:
                 raise ValueError(f"Unknown scoring config field {section_name}.{key}")
-            values[key] = _number(value, f"{section_name}.{key}")
+            values[key] = _typed_value(
+                value,
+                values[key],
+                f"{section_name}.{key}",
+            )
     return replace(DEFAULT_SCORING_CONFIG, **values)
 
 
@@ -76,6 +87,15 @@ def _number(value, field: str):
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"Scoring config field {field} must be a number")
     return value
+
+
+def _typed_value(value, default_value, field: str):
+    """Validate a config value against the matching default field type."""
+    if isinstance(default_value, bool):
+        if not isinstance(value, bool):
+            raise ValueError(f"Scoring config field {field} must be a boolean")
+        return value
+    return _number(value, field)
 
 
 def score_blur(blur: float, config: ScoringConfig = DEFAULT_SCORING_CONFIG) -> int:
