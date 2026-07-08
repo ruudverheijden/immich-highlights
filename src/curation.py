@@ -212,7 +212,8 @@ def score_or_reuse_asset(
         logger.info(
             "Scored photo %s (%s): score=%s, blur_variance=%s, "
             "face_count=%s, face_quality=%s, portrait_quality=%s, "
-            "rating=%s, brightness=%s, content_labels=%s, url=%s",
+            "person_count=%s, yolo_labels=%s, rating=%s, brightness=%s, "
+            "content_labels=%s, url=%s",
             asset_id,
             meta.get("originalFileName", "unknown"),
             details["score"],
@@ -220,6 +221,8 @@ def score_or_reuse_asset(
             details.get("face_count"),
             details.get("face_quality"),
             details.get("portrait_quality"),
+            details.get("person_count"),
+            details.get("yolo_labels") or [],
             details.get("rating"),
             details.get("brightness"),
             details.get("content_labels"),

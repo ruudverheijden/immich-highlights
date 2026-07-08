@@ -3,6 +3,8 @@
 from datetime import timedelta
 import logging
 
+from PIL import Image
+
 try:
     from .asset_analysis import (
         compute_best_face_quality,
@@ -37,6 +39,90 @@ CONTENT_FILTER_MAX_CONTEXT_DAYS = 365
 logger = logging.getLogger("semantic_analysis")
 
 
+def _load_yolo_model():
+    """Load the YOLO model once and reuse it across images for efficiency."""
+    try:
+        from ultralytics import YOLO
+    except ImportError:
+        return None
+
+    try:
+        return YOLO("yolov8n.pt")
+    except Exception as exc:
+        logger.warning("Unable to load YOLO model: %s", exc)
+        return None
+
+
+def detect_people_with_yolo(
+    pil_image,
+    max_size: int = 640,
+    confidence_threshold: float = 0.3,
+) -> list[dict]:
+    """Use a lightweight YOLO model to detect people on CPU-only systems."""
+    if pil_image is None:
+        return []
+
+    try:
+        import numpy as np
+    except ImportError:
+        return []
+
+    try:
+        image = pil_image.convert("RGB")
+        original_width, original_height = image.size
+        scale = min(1.0, max_size / max(original_width, original_height))
+        if scale < 1.0:
+            resized = image.resize(
+                (
+                    max(1, int(original_width * scale)),
+                    max(1, int(original_height * scale)),
+                ),
+                Image.Resampling.LANCZOS,
+            )
+        else:
+            resized = image
+
+        model = _load_yolo_model()
+        if model is None:
+            logger.warning("YOLO detector is unavailable; no labels will be produced")
+            return []
+
+        results = model(
+            np.array(resized),
+            imgsz=max_size,
+            stream=False,
+            conf=confidence_threshold,
+            device="cpu",
+            max_det=50,
+        )
+        detections = []
+        for result in results:
+            for box in result.boxes:
+                x1, y1, x2, y2 = box.xyxy[0].tolist()
+                label = result.names[int(box.cls[0])]
+                confidence = float(box.conf[0])
+                detections.append(
+                    {
+                        "label": label,
+                        "confidence": confidence,
+                        "x": int(x1 / scale) if scale < 1.0 else int(x1),
+                        "y": int(y1 / scale) if scale < 1.0 else int(y1),
+                        "width": (
+                            int((x2 - x1) / scale) if scale < 1.0 else int(x2 - x1)
+                        ),
+                        "height": (
+                            int((y2 - y1) / scale) if scale < 1.0 else int(y2 - y1)
+                        ),
+                    }
+                )
+        if not detections:
+            logger.debug("YOLO produced no detections for this image")
+        return detections
+    except Exception as exc:
+        logger.warning("YOLO detection failed: %s", exc)
+        return []
+
+
 def get_asset_exif_for_storage(meta: dict) -> dict:
     """Return EXIF plus useful asset-level datetime fields for review exports."""
     exif = dict(get_asset_exif(meta) if isinstance(meta, dict) else {})
@@ -52,6 +138,8 @@ def analyze_semantic_metadata(
     immich_faces: list[dict] | None = None,
     content_filter_matches: list[dict] | None = None,
     content_filter_penalty: int = 0,
+    person_detector=None,
+    confidence_threshold: float = 0.3,
 ) -> dict:
     """Collect semantic/user facts from Immich metadata and face boxes."""
     details = {}
@@ -63,6 +151,39 @@ def analyze_semantic_metadata(
         details["faces"] = []
         details["face_count"] = 0
         details["face_quality"] = 0
+
+    if person_detector is None:
+        person_detector = detect_people_with_yolo
+    try:
+        try:
+            yolo_detections = person_detector(
+                pil_image,
+                confidence_threshold=confidence_threshold,
+            )
+        except TypeError:
+            yolo_detections = person_detector(pil_image)
+        details["yolo_detections"] = yolo_detections or []
+        details["yolo_labels"] = [
+            detection.get("label")
+            for detection in details["yolo_detections"]
+            if detection.get("label")
+        ]
+        if not details["yolo_labels"]:
+            logger.debug("YOLO labels were empty for this asset")
+        person_detections = [
+            detection
+            for detection in details["yolo_detections"]
+            if detection.get("label") in {None, "person"}
+        ]
+        details["person_detections"] = person_detections
+        details["person_count"] = len(details["person_detections"])
+        details["person_present"] = details["person_count"] > 0
+    except Exception:
+        details["yolo_detections"] = []
+        details["yolo_labels"] = []
+        details["person_detections"] = []
+        details["person_count"] = 0
+        details["person_present"] = False
 
     details["exif"] = get_asset_exif(asset_meta)
     details["rating"] = normalize_rating(details["exif"].get("rating"))

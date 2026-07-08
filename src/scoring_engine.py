@@ -20,6 +20,7 @@ class ScoringConfig:
     large_image_bonus: int = 5
     face_present_bonus: int = 10
     max_face_quality_bonus: int = 25
+    person_present_bonus: int = 8
     rating_step: int = 15
     high_iso_threshold: int = 3200
     high_iso_penalty: int = -5
@@ -147,6 +148,16 @@ def score_face_quality(
     return max(0, min(config.max_face_quality_bonus, int(face_quality)))
 
 
+def score_persons(
+    person_present: bool,
+    config: ScoringConfig = DEFAULT_SCORING_CONFIG,
+) -> int:
+    """Reward photos with a detected person when a face is not available."""
+    if person_present:
+        return config.person_present_bonus
+    return 0
+
+
 def score_rating(rating, config: ScoringConfig = DEFAULT_SCORING_CONFIG) -> int:
     """Convert Immich's 1-5 star user rating into a score adjustment."""
     if rating is None:
@@ -263,6 +274,7 @@ def calculate_score_details(
         "dimensions": score_dimensions(width, height, config),
         "faces": score_faces(details["face_count"], config),
         "face_quality": score_face_quality(details["face_quality"], config),
+        "persons": score_persons(details.get("person_present", False), config),
         "rating": score_rating(details["rating"], config),
         "exif_quality": score_exif_quality(
             details["iso"],

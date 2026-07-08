@@ -5,3 +5,4 @@ imagehash
 piexif
 APScheduler
 python-dotenv
+ultralytics

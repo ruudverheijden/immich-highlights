@@ -2,6 +2,9 @@
     "chat.tools.terminal.autoApprove": {
         "/usr/local/bin/python3": true,
         "true": true,
-        ".venv/bin/python": true
-    }
+        ".venv/bin/python": true,
+        ".venv/bin/black": true,
+        ".venv/bin/flake8": true
+    },
+    "python-envs.defaultEnvManager": "ms-python.python:system"
 }

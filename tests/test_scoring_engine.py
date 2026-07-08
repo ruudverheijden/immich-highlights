@@ -7,6 +7,7 @@ from src.scoring_engine import (
     score_dimensions,
     score_face_quality,
     score_faces,
+    score_persons,
     score_rating,
     score_exif_quality,
     score_location,
@@ -53,6 +54,12 @@ def test_location_and_user_flag_scoring_helpers():
     assert score_location(False) == 0
     assert score_user_flags(True, True) == 30
     assert score_user_flags(False, False) == 0
+
+
+def test_person_scoring_helper():
+    """A detected person should yield a lightweight bonus in the score."""
+    assert score_persons(False) == 0
+    assert score_persons(True) == 8
 
 
 def test_contrast_helpers_and_clamp_score():

@@ -30,6 +30,7 @@ from src.asset_analysis import (
     score_face_size,
     select_subject_box,
 )
+from src.semantic_analysis import analyze_semantic_metadata
 
 
 def make_checkerboard(size=256, block=8):
@@ -151,6 +152,54 @@ def test_score_asset_can_use_immich_faces_instead_of_local_detection():
     assert details["faces"] == [{"x": 100, "y": 100, "width": 200, "height": 200}]
     assert details["face_count"] == 1
     assert details["face_quality"] > 0
+
+
+def test_analyze_semantic_metadata_records_person_detection():
+    """Detected persons should become semantic facts available to scoring."""
+    img = Image.new("RGB", (200, 200), color=(120, 120, 120))
+
+    def stub_detector(_image):
+        return [{"x": 10, "y": 20, "width": 30, "height": 40}]
+
+    details = analyze_semantic_metadata({}, img, person_detector=stub_detector)
+
+    assert details["person_present"] is True
+    assert details["person_count"] == 1
+    assert details["person_detections"] == [
+        {"x": 10, "y": 20, "width": 30, "height": 40}
+    ]
+
+
+def test_analyze_semantic_metadata_records_yolo_labels():
+    """YOLO-style detections should preserve labels for logging and later tuning."""
+    img = Image.new("RGB", (200, 200), color=(120, 120, 120))
+
+    def stub_detector(_image):
+        return [
+            {
+                "label": "person",
+                "confidence": 0.92,
+                "x": 10,
+                "y": 20,
+                "width": 30,
+                "height": 40,
+            },
+            {
+                "label": "car",
+                "confidence": 0.81,
+                "x": 50,
+                "y": 60,
+                "width": 20,
+                "height": 15,
+            },
+        ]
+
+    details = analyze_semantic_metadata({}, img, person_detector=stub_detector)
+
+    assert details["person_present"] is True
+    assert details["person_count"] == 1
+    assert details["yolo_labels"] == ["person", "car"]
+    assert details["yolo_detections"][0]["label"] == "person"
 
 
 def test_score_small_vs_regular():
