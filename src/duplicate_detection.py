@@ -188,6 +188,62 @@ def duplicate_groups_from_timestamps(
     return groups
 
 
+def duplicate_groups_from_immich(
+    scored_assets,
+    immich_duplicate_groups,
+    album_bucket,
+    existing_groups=None,
+):
+    """Convert Immich duplicate groups into album-scoped suppression groups."""
+    scored_by_id = {asset_id: score for asset_id, score in scored_assets}
+    scored_order = {
+        asset_id: index for index, (asset_id, _score) in enumerate(scored_assets)
+    }
+    assigned = assigned_asset_ids(existing_groups or [])
+    groups = []
+
+    for immich_group in immich_duplicate_groups or []:
+        group_asset_ids = []
+        for asset in immich_group.get("assets") or []:
+            asset_id = asset.get("id") if isinstance(asset, dict) else None
+            if (
+                asset_id
+                and asset_id in scored_by_id
+                and asset_id not in assigned
+                and asset_id not in group_asset_ids
+            ):
+                group_asset_ids.append(asset_id)
+
+        if len(group_asset_ids) < 2:
+            continue
+
+        representative_id = sorted(
+            group_asset_ids,
+            key=lambda asset_id: (-scored_by_id[asset_id], scored_order[asset_id]),
+        )[0]
+        members = [
+            {
+                "asset_id": asset_id,
+                "distance": 0 if asset_id == representative_id else None,
+                "score": scored_by_id[asset_id],
+            }
+            for asset_id in group_asset_ids
+        ]
+        for member in members:
+            assigned.add(member["asset_id"])
+        duplicate_id = immich_group.get("duplicateId") or len(groups) + 1
+        groups.append(
+            {
+                "group_id": f"{album_bucket}:immich:{duplicate_id}",
+                "representative_asset_id": representative_id,
+                "reason": "immich_duplicate",
+                "members": members,
+            }
+        )
+
+    return groups
+
+
 def deduplicate_scored_assets(
     conn,
     album_bucket,
@@ -197,6 +253,7 @@ def deduplicate_scored_assets(
     timestamp_enabled=True,
     timestamp_window_seconds=2,
     timestamp_phash_threshold=10,
+    immich_duplicate_groups=None,
 ):
     """Suppress near-duplicate assets after scoring and persist the groups."""
     if not enabled:
@@ -242,6 +299,14 @@ def deduplicate_scored_assets(
                 existing_groups=groups,
             )
         )
+    groups.extend(
+        duplicate_groups_from_immich(
+            scored_assets,
+            immich_duplicate_groups,
+            album_bucket,
+            existing_groups=groups,
+        )
+    )
     replace_duplicate_groups(conn, album_bucket, groups)
 
     suppressed_ids = {

@@ -56,6 +56,24 @@ def immich_asset_url(base_url: str, asset_id: str) -> str:
     return f"{base_url.rstrip('/')}/photos/{asset_id}"
 
 
+def fetch_immich_duplicate_groups(client, scoring_config):
+    """Fetch Immich duplicate groups when enabled, falling back gracefully."""
+    if (
+        not scoring_config.duplicate_detection_enabled
+        or not scoring_config.immich_duplicate_detection_enabled
+    ):
+        return []
+    try:
+        return client.list_duplicates()
+    except Exception as e:
+        logger.warning(
+            "Could not read Immich duplicate groups; continuing with local "
+            "duplicate detection only: %s",
+            e,
+        )
+        return []
+
+
 def recalculate_cached_score(
     conn,
     cached: dict,
@@ -294,5 +312,9 @@ def curate_assets_for_rule(
         timestamp_enabled=scoring_config.timestamp_duplicate_detection_enabled,
         timestamp_window_seconds=scoring_config.timestamp_duplicate_window_seconds,
         timestamp_phash_threshold=scoring_config.timestamp_duplicate_phash_threshold,
+        immich_duplicate_groups=fetch_immich_duplicate_groups(
+            client,
+            scoring_config,
+        ),
     )
     return select_top_scored_assets(deduplicated, rule.limit)

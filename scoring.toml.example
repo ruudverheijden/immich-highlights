@@ -112,10 +112,15 @@ brightness_penalty = -10
 content_filter_min_penalty = -50
 
 [duplicate_detection]
-# Enable perceptual-hash based near-duplicate suppression. This runs after
-# scoring and before final album selection, so every photo still receives its
-# normal score; only visually redundant photos are held back from the album.
+# Enable duplicate suppression. This runs after scoring and before final album
+# selection, so every photo still receives its normal score; only visually
+# redundant photos are held back from the album.
 duplicate_detection_enabled = true
+
+# Also use Immich's built-in duplicate groups as a read-only duplicate signal.
+# This requires the API key to have duplicate.read permission. The service only
+# reads Immich's groups; it never deletes, resolves, or dismisses duplicates.
+immich_duplicate_detection_enabled = true
 
 # Maximum pHash Hamming distance for two photos to be treated as near-duplicates.
 # Lower values are stricter:

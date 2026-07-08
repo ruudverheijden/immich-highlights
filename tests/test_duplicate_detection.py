@@ -3,6 +3,7 @@
 from src.db import get_duplicate_groups, init_db, upsert_processed_asset
 from src.duplicate_detection import (
     deduplicate_scored_assets,
+    duplicate_groups_from_immich,
     duplicate_groups_from_phashes,
     duplicate_groups_from_timestamps,
     parse_asset_timestamp,
@@ -128,6 +129,47 @@ def test_timestamp_groups_ignore_similar_photos_outside_window():
     )
 
 
+def test_immich_duplicate_groups_are_scoped_to_scored_candidates():
+    """Immich groups should suppress only assets eligible for the current album."""
+    scored = [("a", 70), ("b", 90), ("c", 80)]
+    immich_groups = [
+        {
+            "duplicateId": "immich-group-1",
+            "suggestedKeepAssetIds": ["a"],
+            "assets": [
+                {"id": "a"},
+                {"id": "b"},
+                {"id": "outside-window"},
+            ],
+        },
+        {
+            "duplicateId": "immich-group-2",
+            "assets": [
+                {"id": "c"},
+                {"id": "outside-window-2"},
+            ],
+        },
+    ]
+
+    groups = duplicate_groups_from_immich(
+        scored,
+        immich_groups,
+        album_bucket="last-week",
+    )
+
+    assert groups == [
+        {
+            "group_id": "last-week:immich:immich-group-1",
+            "representative_asset_id": "b",
+            "reason": "immich_duplicate",
+            "members": [
+                {"asset_id": "a", "distance": None, "score": 70},
+                {"asset_id": "b", "distance": 0, "score": 90},
+            ],
+        }
+    ]
+
+
 def test_deduplicate_scored_assets_persists_groups_and_suppresses_duplicates(
     tmp_path,
 ):
@@ -200,3 +242,35 @@ def test_deduplicate_scored_assets_uses_timestamp_confirmed_duplicates(tmp_path)
     assert deduplicated == [("a", 90), ("c", 70)]
     groups = get_duplicate_groups(conn, "last-week")
     assert groups[0]["reason"] == "timestamp<=2s+phash_distance<=4"
+
+
+def test_deduplicate_scored_assets_uses_immich_duplicate_groups(tmp_path):
+    """Immich duplicate groups should be an additional post-scoring signal."""
+    conn = init_db(str(tmp_path / "test.db"))
+    store_phash(conn, "a", "0000")
+    store_phash(conn, "b", "ffff")
+    store_phash(conn, "c", "00f0")
+
+    deduplicated = deduplicate_scored_assets(
+        conn,
+        "last-week",
+        [("a", 90), ("b", 80), ("c", 70)],
+        enabled=True,
+        threshold=1,
+        timestamp_enabled=False,
+        immich_duplicate_groups=[
+            {
+                "duplicateId": "immich-group-1",
+                "assets": [{"id": "a"}, {"id": "b"}],
+                "suggestedKeepAssetIds": ["b"],
+            }
+        ],
+    )
+
+    assert deduplicated == [("a", 90), ("c", 70)]
+    groups = get_duplicate_groups(conn, "last-week")
+    assert groups[0]["reason"] == "immich_duplicate"
+    assert groups[0]["members"] == [
+        {"asset_id": "a", "distance": 0},
+        {"asset_id": "b", "distance": None},
+    ]

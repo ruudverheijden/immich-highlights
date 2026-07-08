@@ -82,6 +82,8 @@ permissions for the default Docker setup:
 - `album.update` to update album metadata
 - `albumAsset.create` to add assets to generated albums
 - `albumAsset.delete` to remove assets from generated albums on reruns
+- `duplicate.read` to use Immich's built-in duplicate groups as a scoring-time
+  duplicate signal
 - `face.read` to use Immich's own face detections for face-based scoring
 
 Optional permissions that are currently not required for the default flow:
@@ -364,10 +366,11 @@ The file has four sections:
 - `[technical_quality]`: blur, resolution, ISO, exposure, contrast, and
   brightness thresholds
 - `[content_filters]`: the minimum content-filter penalty cap
-- `[duplicate_detection]`: whether pHash duplicate suppression is enabled and
-  how visually close two photos must be before one is held back from the album.
-  Timestamp-based duplicate detection is also configured here, but timestamp
-  proximity is only used together with pHash similarity to avoid false positives.
+- `[duplicate_detection]`: whether duplicate suppression is enabled, whether to
+  use Immich's built-in duplicate groups as a read-only signal, and how visually
+  close two photos must be before one is held back from the album. Timestamp-based
+  duplicate detection is also configured here, but timestamp proximity is only
+  used together with pHash similarity to avoid false positives.
 
 Example:
 
@@ -388,15 +391,16 @@ content_filter_min_penalty = -50
 
 [duplicate_detection]
 duplicate_detection_enabled = true
+immich_duplicate_detection_enabled = true
 duplicate_phash_distance_threshold = 10
 timestamp_duplicate_detection_enabled = true
 timestamp_duplicate_window_seconds = 5
 timestamp_duplicate_phash_threshold = 14
 ```
 
-Numeric fields must be numbers, and `duplicate_detection_enabled` must be a
-TOML boolean (`true` or `false`). Unknown field names fail fast at startup so
-typos do not silently change behavior.
+Numeric fields must be numbers, and duplicate toggles must be TOML booleans
+(`true` or `false`). Unknown field names fail fast at startup so typos do not
+silently change behavior.
 
 ## Review Export
 

@@ -141,6 +141,7 @@ def test_verify_permissions_checks_asset_statistics():
             {"total": 0},
             [],
             [],
+            [],
         ]
     )
 
@@ -168,6 +169,13 @@ def test_verify_permissions_checks_asset_statistics():
         },
         "timeout": 5,
     }
+    assert checks["duplicate.read"] == (True, "200")
+    assert client.session.gets[2] == {
+        "url": "http://immich.local/api/duplicates",
+        "params": None,
+        "stream": False,
+        "timeout": 5,
+    }
 
 
 def test_verify_permissions_reports_asset_statistics_failure():
@@ -177,6 +185,7 @@ def test_verify_permissions_reports_asset_statistics_failure():
         [
             {"assets": {"items": []}},
             {"message": "Forbidden"},
+            [],
             [],
             [],
         ]
@@ -304,6 +313,32 @@ def test_get_asset_faces_uses_immich_faces_endpoint():
     assert client.session.gets[0] == {
         "url": "http://immich.local/api/faces",
         "params": {"id": "asset-1"},
+        "stream": False,
+        "timeout": 10,
+    }
+
+
+def test_list_duplicates_uses_immich_duplicates_endpoint():
+    """Immich duplicate groups should be available as a read-only signal."""
+    client = ImmichClient("http://immich.local", dry_run=True)
+    client.session = FakeSession(
+        [
+            [
+                {
+                    "duplicateId": "duplicate-1",
+                    "assets": [{"id": "asset-1"}, {"id": "asset-2"}],
+                    "suggestedKeepAssetIds": ["asset-1"],
+                }
+            ]
+        ]
+    )
+
+    duplicates = client.list_duplicates()
+
+    assert duplicates[0]["duplicateId"] == "duplicate-1"
+    assert client.session.gets[0] == {
+        "url": "http://immich.local/api/duplicates",
+        "params": None,
         "stream": False,
         "timeout": 10,
     }

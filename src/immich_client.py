@@ -256,6 +256,12 @@ class ImmichClient:
         resp.raise_for_status()
         return self._json(resp)
 
+    def list_duplicates(self) -> List[dict]:
+        """Return Immich's read-only duplicate groups for the current user."""
+        resp = self.session.get(self._url("duplicates"), timeout=10)
+        resp.raise_for_status()
+        return self._json(resp)
+
     def download_asset(self, asset_id: str, dest_path: str) -> str:
         url = self._url(f"assets/{asset_id}/original")
         resp = self.session.get(url, stream=True, timeout=30)
@@ -426,6 +432,16 @@ class ImmichClient:
             )
         except Exception as e:
             checks["tag.read"] = (False, str(e))
+
+        # duplicate.read
+        try:
+            r = self.session.get(self._url("duplicates"), timeout=5)
+            checks["duplicate.read"] = (
+                r.status_code == 200,
+                str(r.status_code),
+            )
+        except Exception as e:
+            checks["duplicate.read"] = (False, str(e))
 
         # face.read needs an asset id, so a generic startup probe would return a
         # false failure on current Immich versions. Per-asset face lookups are

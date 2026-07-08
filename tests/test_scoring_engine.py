@@ -99,6 +99,7 @@ duplicate_phash_distance_threshold = 4
 timestamp_duplicate_detection_enabled = false
 timestamp_duplicate_window_seconds = 3
 timestamp_duplicate_phash_threshold = 9
+immich_duplicate_detection_enabled = false
 """,
         encoding="utf-8",
     )
@@ -114,6 +115,7 @@ timestamp_duplicate_phash_threshold = 9
     assert config.timestamp_duplicate_detection_enabled is False
     assert config.timestamp_duplicate_window_seconds == 3
     assert config.timestamp_duplicate_phash_threshold == 9
+    assert config.immich_duplicate_detection_enabled is False
     assert config.rating_step == DEFAULT_SCORING_CONFIG.rating_step
 
 
