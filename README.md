@@ -458,6 +458,18 @@ Run checks:
 .venv/bin/python -m pytest
 ```
 
+Run the golden-image scoring benchmark:
+
+```bash
+.venv/bin/python tools/evaluate_golden_images.py tests/fixtures/golden_images/manifest.toml
+```
+
+The benchmark uses checked-in fixture images with human scores in
+`tests/fixtures/golden_images/manifest.toml`. Add more `[[image]]` entries and
+matching files under `tests/fixtures/golden_images/images/` to tune scoring
+against known examples. The pytest suite also runs this benchmark as a quality
+gate.
+
 ## Developer Notes
 
 ### Pipeline Architecture

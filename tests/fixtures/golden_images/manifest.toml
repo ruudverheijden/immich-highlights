@@ -1,0 +1,512 @@
+# Golden-image benchmark manifest.
+#
+# Add one [[image]] block for each fixture image you want the benchmark to
+# score. The evaluator runs local image analysis and scoring, then compares the
+# application ranking with the personal scores and expected tiers below.
+#
+# Entries below were prefilled from local image analysis. Treat personal_score
+# and expected_tier as starter values for any image you have not reviewed yet.
+
+[settings]
+# Requested number of top-ranked application picks considered "selected" for
+# this fixture set. The evaluator caps this to the number of non-reject images
+# when possible, so a small manifest does not fail only because it has too many
+# reject examples.
+selection_limit = 10
+
+# Fake album name used only to label duplicate-detection report output.
+album_bucket = "golden-images"
+
+# Maximum pHash Hamming distance for reporting visually similar fixture images.
+duplicate_phash_distance_threshold = 6
+
+# Minimum share of images marked expected_tier = "keeper" that must be selected.
+min_top_keeper_recall = 0.75
+
+# Maximum number of images marked expected_tier = "reject" allowed in selection.
+# This can be non-zero while tuning, especially when the manifest is still small.
+max_reject_leak_count = 1
+
+# Reference for fields supported in each [[image]] block:
+#
+# [[image]]
+#
+# Optional stable identifier used in reports and tests. If omitted, the image
+# filename stem is used. It does not need to match the filename.
+# id = "sharp_favorite_large"
+#
+# Required path to the fixture image, relative to this manifest file.
+# file = "images/img-033.jpg"
+#
+# Required personal quality/preference score on a 0-100 scale. This is reported
+# as correlation context, but pass/fail checks are based on expected_tier.
+# personal_score = 96
+#
+# Optional broad expectation for selection checks. If omitted, the tier defaults
+# to "neutral". Current useful tiers are "keeper", "neutral", and "reject".
+# expected_tier = "keeper"
+#
+# Optional free-form labels for human review; the evaluator does not score these.
+# tags = ["sharp", "favorite", "large"]
+#
+# Optional synthetic Immich-like asset metadata used by semantic scoring.
+# [image.metadata]
+# isFavourite = true
+# isEdited = true
+# originalFileName = "img-033.jpg"
+#
+# Optional EXIF-like metadata consumed by scoring helpers.
+# [image.metadata.exif]
+# rating = 5
+# ISO = 100
+# ExposureTime = "1/500"
+# latitude = 52.37
+# longitude = 4.90
+#
+# Optional Immich-style face boxes, in original image coordinates, used for face
+# count and face-quality scoring.
+# [[image.faces]]
+# boundingBoxX1 = 100
+# boundingBoxY1 = 120
+# boundingBoxX2 = 260
+# boundingBoxY2 = 300
+# imageWidth = 1200
+# imageHeight = 900
+#
+# Optional content-filter penalty and match details. Use these when a fixture
+# should behave as if Immich smart search matched an unwanted content filter.
+# content_filter_penalty = -40
+#
+# [[image.content_filter_matches]]
+# label = "screenshot"
+# query = "screenshot"
+# penalty = -40
+# rank = 1
+
+
+[[image]]
+id = "world-map"
+file = "images/img-001.png"
+personal_score = 30
+expected_tier = "reject"
+tags = ["map", "graphic", "small", "sharp", "bright", "low-contrast", "app-score-34"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-001.png"
+
+[[image]]
+id = "dog-portrait"
+file = "images/img-002.jpg"
+personal_score = 34
+expected_tier = "reject"
+tags = ["dog", "animal", "portrait", "blurred", "app-score-34"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-002.jpg"
+
+[[image]]
+id = "green-jacket-street"
+file = "images/img-003.jpg"
+personal_score = 57
+expected_tier = "neutral"
+tags = ["person", "street", "small", "sharp", "app-score-57"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-003.jpg"
+
+[[image]]
+id = "black-white-desks"
+file = "images/img-004.jpg"
+personal_score = 64
+expected_tier = "neutral"
+tags = ["black-and-white", "interior", "sharp", "app-score-64"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-004.jpg"
+
+[[image]]
+id = "street-couple"
+file = "images/img-005.jpg"
+personal_score = 72
+expected_tier = "keeper"
+tags = ["people", "street", "sharp", "app-score-72"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-005.jpg"
+
+[[image]]
+id = "colorful-flowers"
+file = "images/img-006.jpg"
+personal_score = 57
+expected_tier = "neutral"
+tags = ["flowers", "nature", "small", "sharp", "app-score-57"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-006.jpg"
+
+[[image]]
+id = "backpack-cyclist"
+file = "images/img-007.jpg"
+personal_score = 34
+expected_tier = "reject"
+tags = ["people", "street", "bicycle", "blurred", "app-score-34"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-007.jpg"
+
+[[image]]
+id = "brick-building"
+file = "images/img-008.jpg"
+personal_score = 72
+expected_tier = "keeper"
+tags = ["architecture", "building", "sharp", "app-score-72"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-008.jpg"
+
+[[image]]
+id = "night-skyscrapers"
+file = "images/img-009.jpg"
+personal_score = 70
+expected_tier = "keeper"
+tags = ["night", "city", "architecture", "large", "app-score-70"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-009.jpg"
+
+[[image]]
+id = "book-text-closeup"
+file = "images/img-010.jpg"
+personal_score = 49
+expected_tier = "neutral"
+tags = ["book", "text", "closeup", "small", "sharp", "app-score-49"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-010.jpg"
+
+[[image]]
+id = "camera-gear-table"
+file = "images/img-011.jpg"
+personal_score = 57
+expected_tier = "neutral"
+tags = ["camera", "gear", "interior", "small", "sharp", "app-score-57"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-011.jpg"
+
+[[image]]
+id = "christmas-ornaments"
+file = "images/img-012.jpg"
+personal_score = 49
+expected_tier = "neutral"
+tags = ["holiday", "ornaments", "closeup", "small", "sharp", "app-score-49"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-012.jpg"
+
+[[image]]
+id = "coffee-closeup"
+file = "images/img-013.jpg"
+personal_score = 39
+expected_tier = "neutral"
+tags = ["coffee", "food", "closeup", "small", "app-score-39"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-013.jpg"
+
+[[image]]
+id = "dramatic-sunset"
+file = "images/img-014.jpg"
+personal_score = 72
+expected_tier = "keeper"
+tags = ["sunset", "landscape", "sharp", "app-score-72"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-014.jpg"
+
+[[image]]
+id = "dusk-sky"
+file = "images/img-015.jpg"
+personal_score = 19
+expected_tier = "reject"
+tags = ["dusk", "sky", "small", "blurred", "app-score-19"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-015.jpg"
+
+[[image]]
+id = "night-city-view"
+file = "images/img-016.jpg"
+personal_score = 72
+expected_tier = "keeper"
+tags = ["night", "city", "landscape", "sharp", "app-score-72"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-016.jpg"
+
+[[image]]
+id = "phone-display-stack"
+file = "images/img-017.jpg"
+personal_score = 65
+expected_tier = "keeper"
+tags = ["phone", "display", "dark", "app-score-65"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-017.jpg"
+
+[[image]]
+id = "spotify-buttons"
+file = "images/img-018.jpg"
+personal_score = 9
+expected_tier = "reject"
+tags = ["screen", "text", "dark", "small", "blurred", "app-score-9"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-018.jpg"
+
+[[image]]
+id = "plant-closeup"
+file = "images/img-019.jpg"
+personal_score = 39
+expected_tier = "neutral"
+tags = ["plant", "nature", "closeup", "small", "app-score-39"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-019.jpg"
+
+[[image]]
+id = "cooking-pan"
+file = "images/img-020.jpg"
+personal_score = 34
+expected_tier = "reject"
+tags = ["food", "cooking", "closeup", "blurred", "app-score-34"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-020.jpg"
+
+[[image]]
+id = "camera-product"
+file = "images/img-021.jpg"
+personal_score = 52
+expected_tier = "neutral"
+tags = ["camera", "product", "small", "sharp", "high-contrast", "app-score-52"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-021.jpg"
+
+[[image]]
+id = "church-tower"
+file = "images/img-022.jpg"
+personal_score = 52
+expected_tier = "neutral"
+tags = ["architecture", "tower", "small", "sharp", "high-contrast", "app-score-52"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-022.jpg"
+
+[[image]]
+id = "city-overlook"
+file = "images/img-023.jpg"
+personal_score = 57
+expected_tier = "neutral"
+tags = ["city", "landscape", "small", "sharp", "app-score-57"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-023.jpg"
+
+[[image]]
+id = "open-book"
+file = "images/img-024.jpg"
+personal_score = 57
+expected_tier = "neutral"
+tags = ["book", "text", "small", "sharp", "app-score-57"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-024.jpg"
+
+[[image]]
+id = "tree-landscape"
+file = "images/img-025.jpg"
+personal_score = 67
+expected_tier = "keeper"
+tags = ["tree", "landscape", "nature", "sharp", "high-contrast", "app-score-67"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-025.jpg"
+
+[[image]]
+id = "vineyard"
+file = "images/img-026.jpg"
+personal_score = 57
+expected_tier = "neutral"
+tags = ["vineyard", "nature", "landscape", "small", "sharp", "app-score-57"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-026.jpg"
+
+[[image]]
+id = "man-portrait"
+file = "images/img-027.jpg"
+personal_score = 34
+expected_tier = "reject"
+tags = ["person", "portrait", "blurred", "app-score-34"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-027.jpg"
+
+[[image]]
+id = "blurred_snapshot"
+file = "images/img-028.jpg"
+personal_score = 30
+expected_tier = "reject"
+tags = ["pattern", "blurred", "low-contrast", "app-score-29"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-028.jpg"
+
+[[image]]
+id = "kitchen-interior"
+file = "images/img-029.jpg"
+personal_score = 64
+expected_tier = "neutral"
+tags = ["interior", "kitchen", "app-score-64"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-029.jpg"
+
+[[image]]
+id = "school-bus"
+file = "images/img-030.jpg"
+personal_score = 49
+expected_tier = "neutral"
+tags = ["bus", "street", "vehicle", "small", "sharp", "app-score-49"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-030.jpg"
+
+[[image]]
+id = "night-street"
+file = "images/img-031.jpg"
+personal_score = 59
+expected_tier = "neutral"
+tags = ["night", "street", "city", "large", "app-score-59"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-031.jpg"
+
+[[image]]
+id = "overexposed_screenshot"
+file = "images/img-032.jpg"
+personal_score = 12
+expected_tier = "reject"
+tags = ["overexposed", "content-filter", "reject", "blurred", "bright", "low-contrast", "app-score-19"]
+content_filter_penalty = -40
+
+[[image.content_filter_matches]]
+label = "screenshot"
+query = "screenshot"
+penalty = -40
+rank = 1
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-032.jpg"
+
+[[image]]
+id = "sharp-generated-pattern-yellow-blue"
+file = "images/img-033.jpg"
+personal_score = 80
+expected_tier = "keeper"
+tags = ["pattern", "sharp", "generated", "large", "high-contrast", "app-score-80"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-033.jpg"
+
+[[image]]
+id = "sharp-generated-pattern-red-green"
+file = "images/img-034.jpg"
+personal_score = 69
+expected_tier = "keeper"
+tags = ["pattern", "sharp", "generated", "large", "app-score-69"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-034.jpg"
+
+[[image]]
+id = "small_neutral"
+file = "images/img-035.jpg"
+personal_score = 50
+expected_tier = "neutral"
+tags = ["small", "pattern", "sharp", "app-score-49"]
+
+[image.metadata]
+isFavourite = false
+isEdited = false
+originalFileName = "img-035.jpg"
