@@ -5,7 +5,7 @@ from pathlib import Path
 from tools.evaluate_golden_images import evaluate_manifest, render_report
 
 
-MANIFEST = Path("tests/fixtures/golden_images/manifest.toml")
+MANIFEST = Path("tests/golden_images/manifest.toml")
 
 
 def test_golden_images_match_human_scoring_preferences():

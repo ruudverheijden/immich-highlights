@@ -6,5 +6,5 @@
         ".venv/bin/black": true,
         ".venv/bin/flake8": true
     },
-    "python-envs.defaultEnvManager": "ms-python.python:system"
+    "python-envs.defaultEnvManager": "ms-python.python:venv"
 }
