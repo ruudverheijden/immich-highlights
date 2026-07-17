@@ -40,7 +40,6 @@ class GoldenImage:
     path: Path
     personal_score: float
     expected_tier: str
-    tags: tuple[str, ...]
     metadata: dict
     faces: list[dict]
     content_filter_matches: list[dict]
@@ -66,16 +65,16 @@ class GoldenEvaluation:
     selected_ids: list[str]
     duplicate_groups: list[dict]
     spearman_correlation: float
-    top_keeper_recall: float
+    top_accept_recall: float
     reject_leak_count: int
-    min_top_keeper_recall: float
+    min_top_accept_recall: float
     max_reject_leak_count: int
 
     @property
     def passed(self) -> bool:
         """Return True when all quality gates pass."""
         return (
-            self.top_keeper_recall >= self.min_top_keeper_recall
+            self.top_accept_recall >= self.min_top_accept_recall
             and self.reject_leak_count <= self.max_reject_leak_count
         )
 
@@ -120,7 +119,6 @@ def _load_manifest_image(
         path=path,
         personal_score=float(item["personal_score"]),
         expected_tier=str(item.get("expected_tier", "neutral")),
-        tags=tuple(str(tag) for tag in item.get("tags", [])),
         metadata=metadata,
         faces=list(item.get("faces", [])),
         content_filter_matches=list(item.get("content_filter_matches", [])),
@@ -184,10 +182,10 @@ def evaluate_manifest(
     )
 
     selected_set = set(selected_ids)
-    keeper_ids = {
+    accept_ids = {
         result.image.asset_id
         for result in results
-        if result.image.expected_tier == "keeper"
+        if result.image.expected_tier == "accept"
     }
     reject_ids = {
         result.image.asset_id
@@ -195,8 +193,16 @@ def evaluate_manifest(
         if result.image.expected_tier == "reject"
     }
 
-    top_keeper_recall = (
-        len(keeper_ids & selected_set) / len(keeper_ids) if keeper_ids else 1.0
+    top_accept_recall = (
+        len(accept_ids & selected_set) / len(accept_ids) if accept_ids else 1.0
+    )
+    min_top_accept_recall = float(
+        settings.get(
+            "min_top_accept_recall",
+            # Backward compatibility for manifests created before the tier was
+            # renamed from "keeper" to "accept".
+            settings.get("min_top_keeper_recall", 0.75),
+        )
     )
 
     return GoldenEvaluation(
@@ -207,9 +213,9 @@ def evaluate_manifest(
             [result.image.personal_score for result in results],
             [result.app_score for result in results],
         ),
-        top_keeper_recall=top_keeper_recall,
+        top_accept_recall=top_accept_recall,
         reject_leak_count=len(reject_ids & selected_set),
-        min_top_keeper_recall=float(settings.get("min_top_keeper_recall", 0.75)),
+        min_top_accept_recall=min_top_accept_recall,
         max_reject_leak_count=int(settings.get("max_reject_leak_count", 0)),
     )
 
@@ -260,8 +266,8 @@ def render_report(evaluation: GoldenEvaluation) -> str:
         f"passed: {evaluation.passed}",
         f"spearman_correlation: {evaluation.spearman_correlation:.3f} (report only)",
         (
-            f"top_keeper_recall: {evaluation.top_keeper_recall:.3f} "
-            f"(min {evaluation.min_top_keeper_recall:.3f})"
+            f"top_accept_recall: {evaluation.top_accept_recall:.3f} "
+            f"(min {evaluation.min_top_accept_recall:.3f})"
         ),
         (
             f"reject_leak_count: {evaluation.reject_leak_count} "

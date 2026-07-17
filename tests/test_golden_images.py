@@ -13,5 +13,5 @@ def test_golden_images_match_human_scoring_preferences():
     evaluation = evaluate_manifest(MANIFEST)
 
     assert evaluation.passed, render_report(evaluation)
-    assert evaluation.top_keeper_recall >= evaluation.min_top_keeper_recall
+    assert evaluation.top_accept_recall >= evaluation.min_top_accept_recall
     assert evaluation.reject_leak_count <= evaluation.max_reject_leak_count
